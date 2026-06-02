@@ -1,4 +1,4 @@
-from app import BLOCK_TYPES, CanvasView, format_flow_diagram
+from app import BLOCK_TYPES, CanvasView, PaletteView, format_flow_diagram
 from engine.models import ProcessBlock, ProcessConnection
 
 
@@ -106,3 +106,40 @@ def test_input_block_canvas_title_uses_compact_label():
     )
 
     assert view._block_canvas_title(block) == "원자재 투입"
+
+
+def test_palette_list_width_is_capped_when_pane_is_stretched():
+    assert PaletteView._bounded_list_width(container_width=900, scrollbar_width=17) == (
+        PaletteView.LIST_MAX_WIDTH
+    )
+    assert PaletteView._bounded_list_width(container_width=140, scrollbar_width=17) == 119
+
+
+def diagram_block(block_id: int, x: float, y: float) -> ProcessBlock:
+    return ProcessBlock(id=block_id, type="CUTTING", x=x, y=y, width=150, height=80)
+
+
+def test_connection_path_uses_facing_edges_when_target_is_left():
+    view = CanvasView.__new__(CanvasView)
+    from_block = diagram_block(1, x=320, y=100)
+    to_block = diagram_block(2, x=80, y=120)
+
+    points, _delete_position = view._connection_path(from_block, to_block)
+
+    assert points[0] == from_block.x - CanvasView.CONNECTION_GAP
+    assert points[1] == from_block.y + from_block.height / 2
+    assert points[6] == to_block.x + to_block.width + CanvasView.CONNECTION_GAP
+    assert points[7] == to_block.y + to_block.height / 2
+
+
+def test_connection_path_uses_vertical_edges_when_target_is_below():
+    view = CanvasView.__new__(CanvasView)
+    from_block = diagram_block(1, x=120, y=60)
+    to_block = diagram_block(2, x=145, y=260)
+
+    points, _delete_position = view._connection_path(from_block, to_block)
+
+    assert points[0] == from_block.x + from_block.width / 2
+    assert points[1] == from_block.y + from_block.height + CanvasView.CONNECTION_GAP
+    assert points[6] == to_block.x + to_block.width / 2
+    assert points[7] == to_block.y - CanvasView.CONNECTION_GAP

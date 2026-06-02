@@ -447,7 +447,7 @@ class App:
         content_paned = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
         content_paned.pack(fill=tk.BOTH, expand=True)
 
-        left_frame = ttk.Frame(content_paned, width=240, style="App.TFrame")
+        left_frame = ttk.Frame(content_paned, width=205, style="App.TFrame")
         center_frame = ttk.Frame(content_paned, style="App.TFrame")
         right_frame = ttk.Frame(content_paned, width=420, style="App.TFrame")
         content_paned.add(left_frame, weight=0)
@@ -1023,6 +1023,9 @@ class App:
 
 
 class PaletteView:
+    LIST_MAX_WIDTH = 180
+    SCROLLBAR_MARGIN = 4
+
     def __init__(self, parent: tk.Widget, controller: App) -> None:
         self.controller = controller
         self.frame = ttk.LabelFrame(
@@ -1035,16 +1038,55 @@ class PaletteView:
         self._create_widgets()
 
     def _create_widgets(self) -> None:
-        canvas = tk.Canvas(self.frame, width=250, bg="#f8fafc", highlightthickness=0)
-        scrollbar = ttk.Scrollbar(self.frame, orient=tk.VERTICAL, command=canvas.yview)
+        palette_body = ttk.Frame(self.frame, style="Panel.TFrame")
+        palette_body.pack(side=tk.LEFT, fill=tk.Y, anchor=tk.NW)
+
+        canvas = tk.Canvas(
+            palette_body,
+            width=self.LIST_MAX_WIDTH,
+            bg="#f8fafc",
+            highlightthickness=0,
+        )
+        scrollbar = ttk.Scrollbar(palette_body, orient=tk.VERTICAL, command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas, style="Panel.TFrame")
+        buttons: list[tk.Button] = []
 
         scrollable_frame.bind(
             "<Configure>",
             lambda _event: canvas.configure(scrollregion=canvas.bbox("all")),
         )
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        palette_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
+
+        def resize_palette(event: tk.Event) -> None:
+            width = max(int(event.width), 1)
+            canvas.itemconfigure(palette_window, width=width)
+            wraplength = max(width - 24, 40)
+            for button in buttons:
+                button.configure(wraplength=wraplength)
+
+        def resize_container(event: tk.Event) -> None:
+            width = self._bounded_list_width(
+                int(event.width),
+                int(scrollbar.winfo_reqwidth()),
+            )
+            canvas.configure(width=width)
+
+        def scroll_palette(event: tk.Event) -> str:
+            if getattr(event, "num", None) == 4 or getattr(event, "delta", 0) > 0:
+                canvas.yview_scroll(-1, "units")
+            elif getattr(event, "num", None) == 5 or getattr(event, "delta", 0) < 0:
+                canvas.yview_scroll(1, "units")
+            return "break"
+
+        self.frame.bind("<Configure>", resize_container)
+        canvas.bind("<Configure>", resize_palette)
+        canvas.bind("<MouseWheel>", scroll_palette)
+        canvas.bind("<Button-4>", scroll_palette)
+        canvas.bind("<Button-5>", scroll_palette)
+        scrollable_frame.bind("<MouseWheel>", scroll_palette)
+        scrollable_frame.bind("<Button-4>", scroll_palette)
+        scrollable_frame.bind("<Button-5>", scroll_palette)
 
         for key, block_type in BLOCK_TYPES.items():
             if key == "INPUT":
@@ -1061,7 +1103,7 @@ class PaletteView:
                 text=f"{block_type.icon} {block_type.label}\n({detail})",
                 bg=block_type.color,
                 fg=self._text_color_for_button(key),
-                font=("Arial", 10, "bold"),
+                font=("Arial", 9, "bold"),
                 activebackground=block_type.color,
                 activeforeground=self._text_color_for_button(key),
                 relief=tk.FLAT,
@@ -1070,13 +1112,23 @@ class PaletteView:
                 cursor="hand2",
                 anchor=tk.W,
                 justify=tk.LEFT,
-                padx=14,
+                padx=10,
+                wraplength=150,
                 command=lambda block_key=key: self.controller.add_block(block_key),
             )
-            button.pack(fill=tk.X, pady=4, ipady=9)
+            button.bind("<MouseWheel>", scroll_palette)
+            button.bind("<Button-4>", scroll_palette)
+            button.bind("<Button-5>", scroll_palette)
+            button.pack(fill=tk.X, pady=3, ipady=7)
+            buttons.append(button)
 
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    @classmethod
+    def _bounded_list_width(cls, container_width: int, scrollbar_width: int) -> int:
+        available_width = container_width - scrollbar_width - cls.SCROLLBAR_MARGIN
+        return max(1, min(cls.LIST_MAX_WIDTH, available_width))
 
     def _text_color_for_button(self, block_type: str) -> str:
         if block_type in {"BENDING", "CUTTING", "PACKING"}:
@@ -1085,6 +1137,10 @@ class PaletteView:
 
 
 class CanvasView:
+    CONNECTION_GAP = 10
+    CONNECTION_CONTROL_MIN = 44
+    CONNECTION_CONTROL_MAX = 140
+
     def __init__(self, parent: tk.Widget, controller: App) -> None:
         self.controller = controller
         self.drag_block_id: int | None = None
@@ -1347,16 +1403,10 @@ class CanvasView:
         if not from_block or not to_block:
             return
 
-        x1 = from_block.x + from_block.width + 5
-        y1 = from_block.y + from_block.height / 2
-        x2 = to_block.x - 10
-        y2 = to_block.y + to_block.height / 2
+        line_points, delete_position = self._connection_path(from_block, to_block)
 
         self.canvas.create_line(
-            x1,
-            y1,
-            x2,
-            y2,
+            *line_points,
             arrow=tk.LAST,
             fill="#475569",
             width=3,
@@ -1364,8 +1414,7 @@ class CanvasView:
             tags=f"conn_{connection.id}",
         )
 
-        mid_x = (x1 + x2) / 2
-        mid_y = (y1 + y2) / 2
+        mid_x, mid_y = delete_position
         self.canvas.create_oval(
             mid_x - 8,
             mid_y - 8,
@@ -1384,6 +1433,94 @@ class CanvasView:
             fill="white",
             tags=f"conn_{connection.id}_delete",
         )
+
+    def _connection_path(
+        self,
+        from_block: ProcessBlock,
+        to_block: ProcessBlock,
+    ) -> tuple[tuple[float, ...], tuple[float, float]]:
+        from_side, to_side = self._connection_sides(from_block, to_block)
+        x1, y1, dx1, dy1 = self._connection_anchor(from_block, from_side)
+        x2, y2, dx2, dy2 = self._connection_anchor(to_block, to_side)
+
+        distance = ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
+        control_distance = min(
+            self.CONNECTION_CONTROL_MAX,
+            max(self.CONNECTION_CONTROL_MIN, distance * 0.35),
+        )
+        control1 = (x1 + dx1 * control_distance, y1 + dy1 * control_distance)
+        control2 = (x2 + dx2 * control_distance, y2 + dy2 * control_distance)
+        line_points = (
+            x1,
+            y1,
+            control1[0],
+            control1[1],
+            control2[0],
+            control2[1],
+            x2,
+            y2,
+        )
+        delete_position = self._cubic_point((x1, y1), control1, control2, (x2, y2), 0.5)
+        return line_points, delete_position
+
+    def _connection_sides(
+        self,
+        from_block: ProcessBlock,
+        to_block: ProcessBlock,
+    ) -> tuple[str, str]:
+        from_center_x = from_block.x + from_block.width / 2
+        from_center_y = from_block.y + from_block.height / 2
+        to_center_x = to_block.x + to_block.width / 2
+        to_center_y = to_block.y + to_block.height / 2
+        delta_x = to_center_x - from_center_x
+        delta_y = to_center_y - from_center_y
+
+        if abs(delta_x) >= abs(delta_y):
+            if delta_x >= 0:
+                return "right", "left"
+            return "left", "right"
+        if delta_y >= 0:
+            return "bottom", "top"
+        return "top", "bottom"
+
+    def _connection_anchor(
+        self,
+        block: ProcessBlock,
+        side: str,
+    ) -> tuple[float, float, int, int]:
+        center_x = block.x + block.width / 2
+        center_y = block.y + block.height / 2
+        gap = self.CONNECTION_GAP
+        if side == "left":
+            return block.x - gap, center_y, -1, 0
+        if side == "right":
+            return block.x + block.width + gap, center_y, 1, 0
+        if side == "top":
+            return center_x, block.y - gap, 0, -1
+        return center_x, block.y + block.height + gap, 0, 1
+
+    def _cubic_point(
+        self,
+        p0: tuple[float, float],
+        p1: tuple[float, float],
+        p2: tuple[float, float],
+        p3: tuple[float, float],
+        t: float,
+    ) -> tuple[float, float]:
+        inverse = 1 - t
+        x = (
+            inverse**3 * p0[0]
+            + 3 * inverse**2 * t * p1[0]
+            + 3 * inverse * t**2 * p2[0]
+            + t**3 * p3[0]
+        )
+        y = (
+            inverse**3 * p0[1]
+            + 3 * inverse**2 * t * p1[1]
+            + 3 * inverse * t**2 * p2[1]
+            + t**3 * p3[1]
+        )
+        return x, y
 
     def draw_grid(self) -> None:
         for position in range(0, 2001, 40):
