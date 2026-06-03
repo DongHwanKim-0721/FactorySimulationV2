@@ -30,9 +30,39 @@ class ProcessConnection:
 
 
 @dataclass
+class Operator:
+    id: int
+    name: str
+    x: float
+    y: float
+    qualified_process_types: set[str] = field(default_factory=set)
+    width: int = 130
+    height: int = 64
+
+
+@dataclass
+class OperatorAssignment:
+    id: int
+    operator_id: int
+    block_id: int
+
+
+UNIVERSAL_OPERATOR_BLOCK_TYPES = {"INPUT", "HOIST", "FREE", "WORK_WAITING"}
+
+
+def operator_can_handle_block(operator: Operator, block: ProcessBlock) -> bool:
+    return (
+        block.type in UNIVERSAL_OPERATOR_BLOCK_TYPES
+        or block.type in operator.qualified_process_types
+    )
+
+
+@dataclass
 class Scenario:
     blocks: list[ProcessBlock] = field(default_factory=list)
     connections: list[ProcessConnection] = field(default_factory=list)
+    operators: list[Operator] = field(default_factory=list)
+    operator_assignments: list[OperatorAssignment] = field(default_factory=list)
 
     def next_block_id(self) -> int:
         if not self.blocks:
@@ -43,6 +73,16 @@ class Scenario:
         if not self.connections:
             return 1
         return max(connection.id for connection in self.connections) + 1
+
+    def next_operator_id(self) -> int:
+        if not self.operators:
+            return 1
+        return max(operator.id for operator in self.operators) + 1
+
+    def next_operator_assignment_id(self) -> int:
+        if not self.operator_assignments:
+            return 1
+        return max(assignment.id for assignment in self.operator_assignments) + 1
 
     def add_block(
         self,
@@ -85,6 +125,11 @@ class Scenario:
             for connection in self.connections
             if connection.from_block != block_id and connection.to_block != block_id
         ]
+        self.operator_assignments = [
+            assignment
+            for assignment in self.operator_assignments
+            if assignment.block_id != block_id
+        ]
 
     def add_connection(
         self,
@@ -124,6 +169,94 @@ class Scenario:
         self.connections = [
             connection for connection in self.connections if connection.id != connection_id
         ]
+
+    def add_operator(
+        self,
+        name: str,
+        x: float,
+        y: float,
+        qualified_process_types: set[str] | list[str] | tuple[str, ...] | None = None,
+        operator_id: int | None = None,
+    ) -> Operator:
+        if not name.strip():
+            raise ValueError("Operator name is required.")
+
+        operator = Operator(
+            id=operator_id if operator_id is not None else self.next_operator_id(),
+            name=name.strip(),
+            x=x,
+            y=y,
+            qualified_process_types=set(qualified_process_types or ()),
+        )
+        self.operators.append(operator)
+        return operator
+
+    def delete_operator(self, operator_id: int) -> None:
+        self.operators = [
+            operator for operator in self.operators if operator.id != operator_id
+        ]
+        self.operator_assignments = [
+            assignment
+            for assignment in self.operator_assignments
+            if assignment.operator_id != operator_id
+        ]
+
+    def add_operator_assignment(
+        self,
+        operator_id: int,
+        block_id: int,
+        assignment_id: int | None = None,
+    ) -> OperatorAssignment:
+        operator = self.operator_by_id(operator_id)
+        block = self.block_by_id(block_id)
+
+        if operator is None:
+            raise ValueError("Operator does not exist in this scenario.")
+        if block is None:
+            raise ValueError("Process block does not exist in this scenario.")
+
+        duplicate = any(
+            assignment.operator_id == operator_id and assignment.block_id == block_id
+            for assignment in self.operator_assignments
+        )
+        if duplicate:
+            raise ValueError("This operator assignment already exists.")
+
+        already_assigned = any(
+            assignment.block_id == block_id
+            for assignment in self.operator_assignments
+        )
+        if already_assigned:
+            raise ValueError("This process block already has an assigned operator.")
+
+        if not operator_can_handle_block(operator, block):
+            raise ValueError("Operator is not qualified for this process type.")
+
+        assignment = OperatorAssignment(
+            id=assignment_id
+            if assignment_id is not None
+            else self.next_operator_assignment_id(),
+            operator_id=operator_id,
+            block_id=block_id,
+        )
+        self.operator_assignments.append(assignment)
+        return assignment
+
+    def delete_operator_assignment(self, assignment_id: int) -> None:
+        self.operator_assignments = [
+            assignment
+            for assignment in self.operator_assignments
+            if assignment.id != assignment_id
+        ]
+
+    def block_by_id(self, block_id: int) -> ProcessBlock | None:
+        return next((block for block in self.blocks if block.id == block_id), None)
+
+    def operator_by_id(self, operator_id: int) -> Operator | None:
+        return next(
+            (operator for operator in self.operators if operator.id == operator_id),
+            None,
+        )
 
     def _would_create_cycle(self, from_block: int, to_block: int) -> bool:
         stack = [to_block]

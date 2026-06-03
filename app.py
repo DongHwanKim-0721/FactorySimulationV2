@@ -5,7 +5,15 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Callable
 
-from engine.models import ProcessBlock, ProcessConnection, Scenario
+from engine.models import (
+    Operator,
+    OperatorAssignment,
+    ProcessBlock,
+    ProcessConnection,
+    Scenario,
+    UNIVERSAL_OPERATOR_BLOCK_TYPES,
+    operator_can_handle_block,
+)
 from engine.scenario_io import load as load_scenario_file
 from engine.scenario_io import save as save_scenario_file
 from engine.simulation import BlockResult, BundleRecord, SimulationResult, simulate
@@ -39,6 +47,12 @@ BLOCK_TYPES: dict[str, BlockType] = {
     "HOIST": BlockType("호이스트", "#0f766e", "🏗️", default_transport_capacity=4),
     "FREE": BlockType("Free Block", "#6b7280", "📋", 30),
 }
+
+OPERATOR_QUALIFICATION_TYPES = tuple(
+    block_type
+    for block_type in BLOCK_TYPES
+    if block_type not in UNIVERSAL_OPERATOR_BLOCK_TYPES
+)
 
 
 def format_flow_diagram(
@@ -353,6 +367,7 @@ class App:
         self.last_result: SimulationResult | None = None
         self.animation = AnimationController()
         self._animation_after_id: str | None = None
+        self.connection_start_kind: str | None = None
         self.connection_start_id: int | None = None
         self.status_var = tk.StringVar(value="준비 완료")
 
@@ -528,6 +543,152 @@ class App:
 
         dialog.wait_window()
         return result["name"]
+
+    def add_operator(self) -> None:
+        settings = self.prompt_operator_settings()
+        if settings is None:
+            return
+
+        name, qualified_process_types = settings
+        operator = self.scenario.add_operator(
+            name=name,
+            x=320,
+            y=140 + len(self.scenario.operators) * 90,
+            qualified_process_types=qualified_process_types,
+        )
+        self.mark_structure_changed(
+            "Operator changed; rerun simulation to refresh results."
+        )
+        self.canvas_view.redraw()
+        self.status_var.set(f"Operator added: {operator.name}")
+
+    def prompt_operator_settings(
+        self,
+        operator: Operator | None = None,
+    ) -> tuple[str, set[str]] | None:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Operator Settings")
+        dialog.geometry("420x520")
+        dialog.configure(bg="#f8fafc")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        result: dict[str, tuple[str, set[str]] | None] = {"settings": None}
+        name_var = tk.StringVar(value=operator.name if operator else "Operator")
+        selected_types = set(operator.qualified_process_types if operator else ())
+        qualification_vars = {
+            block_type: tk.BooleanVar(value=block_type in selected_types)
+            for block_type in OPERATOR_QUALIFICATION_TYPES
+        }
+
+        ttk.Label(
+            dialog,
+            text="Operator",
+            font=("Arial", 14, "bold"),
+        ).pack(fill=tk.X, padx=20, pady=(18, 8))
+
+        form_frame = ttk.Frame(dialog, padding=(22, 12), style="Panel.TFrame")
+        form_frame.pack(fill=tk.BOTH, expand=True, padx=16, pady=(0, 12))
+        form_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(form_frame, text="Name:").grid(row=0, column=0, sticky=tk.W, pady=6)
+        name_entry = ttk.Entry(form_frame, textvariable=name_var, width=24)
+        name_entry.grid(row=0, column=1, sticky="ew", pady=6)
+        name_entry.focus()
+
+        ttk.Label(
+            form_frame,
+            text="Qualified process types",
+            font=("Arial", 10, "bold"),
+        ).grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(12, 4))
+
+        for row, block_type in enumerate(OPERATOR_QUALIFICATION_TYPES, start=2):
+            block_type_info = BLOCK_TYPES[block_type]
+            ttk.Checkbutton(
+                form_frame,
+                text=f"{block_type_info.icon} {block_type_info.label}",
+                variable=qualification_vars[block_type],
+            ).grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=2)
+
+        def save_operator_settings() -> None:
+            name = name_var.get().strip()
+            qualifications = {
+                block_type
+                for block_type, value in qualification_vars.items()
+                if value.get()
+            }
+            if not name:
+                messagebox.showerror("Input Error", "Operator name is required.")
+                return
+            if not qualifications:
+                messagebox.showerror(
+                    "Input Error",
+                    "Select at least one qualified process type.",
+                )
+                return
+            if operator is not None and not self._operator_edit_keeps_assignments(
+                operator,
+                qualifications,
+            ):
+                messagebox.showwarning(
+                    "Operator Assignment",
+                    "Current assignments require qualifications that were unchecked.",
+                )
+                return
+
+            result["settings"] = (name, qualifications)
+            dialog.destroy()
+
+        button_frame = ttk.Frame(dialog, padding=(16, 0, 16, 14))
+        button_frame.pack(fill=tk.X)
+        ttk.Button(
+            button_frame,
+            text="Save",
+            command=save_operator_settings,
+        ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(
+            side=tk.LEFT,
+            padx=5,
+        )
+        name_entry.bind("<Return>", lambda _event: save_operator_settings())
+
+        dialog.wait_window()
+        return result["settings"]
+
+    def _operator_edit_keeps_assignments(
+        self,
+        operator: Operator,
+        qualifications: set[str],
+    ) -> bool:
+        probe = Operator(
+            id=operator.id,
+            name=operator.name,
+            x=operator.x,
+            y=operator.y,
+            qualified_process_types=qualifications,
+        )
+        for assignment in self.scenario.operator_assignments:
+            if assignment.operator_id != operator.id:
+                continue
+            block = self.find_block(assignment.block_id)
+            if block is not None and not operator_can_handle_block(probe, block):
+                return False
+        return True
+
+    def edit_operator(self, operator_id: int) -> None:
+        operator = self.find_operator(operator_id)
+        if operator is None:
+            return
+        settings = self.prompt_operator_settings(operator)
+        if settings is None:
+            return
+
+        operator.name, operator.qualified_process_types = settings
+        self.mark_structure_changed(
+            "Operator changed; rerun simulation to refresh results."
+        )
+        self.canvas_view.redraw()
+        self.status_var.set(f"Operator updated: {operator.name}")
 
     def edit_block_parameters(self, block_id: int) -> None:
         block = self.find_block(block_id)
@@ -716,26 +877,48 @@ class App:
         self.canvas_view.redraw()
         self.canvas_view.update_playback_controls()
 
-    def start_or_finish_connection(self, block_id: int) -> None:
-        block = self.find_block(block_id)
-        if not block:
+    def move_operator(self, operator_id: int, dx: float, dy: float) -> None:
+        operator = self.find_operator(operator_id)
+        if operator is None:
             return
+        operator.x += dx
+        operator.y += dy
+        self.animation.mark_layout_changed()
+        self.canvas_view.redraw()
+        self.canvas_view.update_playback_controls()
 
+    def start_or_finish_connection(self, block_id: int) -> None:
+        self.start_or_finish_connection_target("block", block_id)
+
+    def start_or_finish_operator_connection(self, operator_id: int) -> None:
+        self.start_or_finish_connection_target("operator", operator_id)
+
+    def start_or_finish_connection_target(self, kind: str, target_id: int) -> None:
         if self.connection_start_id is None:
-            self.connection_start_id = block_id
-            self.canvas_view.show_connection_start(block_id)
+            self.connection_start_kind = kind
+            self.connection_start_id = target_id
+            self.canvas_view.show_connection_start(kind, target_id)
             self.status_var.set(
-                f"{self.block_display_name(block)}에서 연결을 시작합니다. 대상 블록을 Shift+클릭하세요."
+                f"{self.target_display_name(kind, target_id)}에서 연결을 시작합니다. "
+                "대상을 Shift+클릭하세요."
             )
             return
 
-        from_block = self.find_block(self.connection_start_id)
-        if not from_block:
+        start_kind = self.connection_start_kind
+        start_id = self.connection_start_id
+        if start_kind is None:
             self.end_connection_mode()
             return
 
         try:
-            self.scenario.add_connection(self.connection_start_id, block_id)
+            if start_kind == "block" and kind == "block":
+                self.scenario.add_connection(start_id, target_id)
+            elif start_kind == "operator" and kind == "block":
+                self.scenario.add_operator_assignment(start_id, target_id)
+            elif start_kind == "block" and kind == "operator":
+                self.scenario.add_operator_assignment(target_id, start_id)
+            else:
+                raise ValueError("작업자끼리는 연결할 수 없습니다.")
         except ValueError as exc:
             messagebox.showwarning("연결 오류", f"연결을 만들 수 없습니다:\n{exc}")
             self.status_var.set("연결을 생성하지 못했습니다.")
@@ -749,8 +932,8 @@ class App:
     def cancel_connection(self, _event: object | None = None) -> None:
         if self.connection_start_id is None:
             return
-        start_block = self.find_block(self.connection_start_id)
-        start_name = self.block_display_name(start_block) if start_block else "선택 블록"
+        start_kind = self.connection_start_kind or "block"
+        start_name = self.target_display_name(start_kind, self.connection_start_id)
         self.end_connection_mode()
         self.status_var.set(f"{start_name}에서 시작한 연결이 취소되었습니다.")
 
@@ -761,6 +944,7 @@ class App:
         self.select_animation_token(None)
 
     def end_connection_mode(self) -> None:
+        self.connection_start_kind = None
         self.connection_start_id = None
         self.canvas_view.end_connection_mode()
 
@@ -777,6 +961,20 @@ class App:
         self.mark_structure_changed("블록이 삭제되어 시뮬레이션 재실행이 필요합니다.")
         self.canvas_view.redraw()
         self.status_var.set("블록이 삭제되었습니다.")
+
+    def delete_operator(self, operator_id: int) -> None:
+        operator = self.find_operator(operator_id)
+        if operator is None:
+            return
+        if not messagebox.askyesno(
+            "삭제 확인",
+            f"{operator.name} 작업자를 삭제하시겠습니까?",
+        ):
+            return
+        self.scenario.delete_operator(operator_id)
+        self.mark_structure_changed("작업자가 삭제되어 시뮬레이션 재실행이 필요합니다.")
+        self.canvas_view.redraw()
+        self.status_var.set("작업자가 삭제되었습니다.")
 
     def delete_connection(self, connection_id: int) -> None:
         connection = self.find_connection(connection_id)
@@ -798,6 +996,26 @@ class App:
         self.canvas_view.redraw()
         self.status_var.set("연결이 삭제되었습니다.")
 
+    def delete_operator_assignment(self, assignment_id: int) -> None:
+        assignment = self.find_operator_assignment(assignment_id)
+        if assignment is None:
+            return
+
+        operator = self.find_operator(assignment.operator_id)
+        block = self.find_block(assignment.block_id)
+        operator_name = operator.name if operator else "Unknown"
+        block_name = self.block_display_name(block) if block else "Unknown"
+
+        if not messagebox.askyesno(
+            "작업자 연결 삭제",
+            f"{operator_name} ↔ {block_name}\n이 작업자 연결을 삭제하시겠습니까?",
+        ):
+            return
+        self.scenario.delete_operator_assignment(assignment_id)
+        self.mark_structure_changed("작업자 연결이 삭제되어 시뮬레이션 재실행이 필요합니다.")
+        self.canvas_view.redraw()
+        self.status_var.set("작업자 연결이 삭제되었습니다.")
+
     def run_simulation(self) -> None:
         if not self.scenario.blocks:
             messagebox.showwarning("경고", "공정 블록을 추가해주세요.")
@@ -807,6 +1025,8 @@ class App:
             result = simulate(
                 self.scenario.blocks,
                 self.scenario.connections,
+                self.scenario.operators,
+                self.scenario.operator_assignments,
             )
         except ValueError as exc:
             messagebox.showerror("시뮬레이션 오류", str(exc))
@@ -856,6 +1076,7 @@ class App:
             return
 
         self.last_result = None
+        self.connection_start_kind = None
         self.connection_start_id = None
         self.animation.clear()
         self.canvas_view.redraw()
@@ -869,6 +1090,7 @@ class App:
             return
         self.scenario = Scenario()
         self.last_result = None
+        self.connection_start_kind = None
         self.connection_start_id = None
         self.animation.clear()
         self.canvas_view.redraw()
@@ -979,11 +1201,31 @@ class App:
             return block.custom_name
         return BLOCK_TYPES[block.type].label
 
+    def operator_display_name(self, operator: Operator | None) -> str:
+        if operator is None:
+            return "Unknown"
+        return operator.name
+
+    def target_display_name(self, kind: str, target_id: int) -> str:
+        if kind == "operator":
+            return self.operator_display_name(self.find_operator(target_id))
+        return self.block_display_name(self.find_block(target_id))
+
     def block_result_display_name(self, result: BlockResult) -> str:
         return self.block_display_name(self.find_block(result.block_id))
 
     def find_block(self, block_id: int) -> ProcessBlock | None:
         return next((block for block in self.scenario.blocks if block.id == block_id), None)
+
+    def find_operator(self, operator_id: int) -> Operator | None:
+        return next(
+            (
+                operator
+                for operator in self.scenario.operators
+                if operator.id == operator_id
+            ),
+            None,
+        )
 
     def find_connection(self, connection_id: int) -> ProcessConnection | None:
         return next(
@@ -991,6 +1233,19 @@ class App:
                 connection
                 for connection in self.scenario.connections
                 if connection.id == connection_id
+            ),
+            None,
+        )
+
+    def find_operator_assignment(
+        self,
+        assignment_id: int,
+    ) -> OperatorAssignment | None:
+        return next(
+            (
+                assignment
+                for assignment in self.scenario.operator_assignments
+                if assignment.id == assignment_id
             ),
             None,
         )
@@ -1038,7 +1293,15 @@ class PaletteView:
         self._create_widgets()
 
     def _create_widgets(self) -> None:
-        palette_body = ttk.Frame(self.frame, style="Panel.TFrame")
+        notebook = ttk.Notebook(self.frame)
+        notebook.pack(fill=tk.BOTH, expand=True)
+
+        process_tab = ttk.Frame(notebook, style="Panel.TFrame")
+        operator_tab = ttk.Frame(notebook, style="Panel.TFrame")
+        notebook.add(process_tab, text="공정")
+        notebook.add(operator_tab, text="작업자")
+
+        palette_body = ttk.Frame(process_tab, style="Panel.TFrame")
         palette_body.pack(side=tk.LEFT, fill=tk.Y, anchor=tk.NW)
 
         canvas = tk.Canvas(
@@ -1125,6 +1388,14 @@ class PaletteView:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
+        operator_body = ttk.Frame(operator_tab, padding=12, style="Panel.TFrame")
+        operator_body.pack(fill=tk.BOTH, expand=True)
+        ttk.Button(
+            operator_body,
+            text="작업자 추가",
+            command=self.controller.add_operator,
+        ).pack(fill=tk.X, pady=(0, 10))
+
     @classmethod
     def _bounded_list_width(cls, container_width: int, scrollbar_width: int) -> int:
         available_width = container_width - scrollbar_width - cls.SCROLLBAR_MARGIN
@@ -1144,6 +1415,7 @@ class CanvasView:
     def __init__(self, parent: tk.Widget, controller: App) -> None:
         self.controller = controller
         self.drag_block_id: int | None = None
+        self.drag_operator_id: int | None = None
         self.drag_x = 0.0
         self.drag_y = 0.0
         self.current_tokens: list[BundleTokenState] = []
@@ -1251,8 +1523,12 @@ class CanvasView:
         self.draw_grid()
         for connection in self.controller.scenario.connections:
             self.draw_connection(connection)
+        for assignment in self.controller.scenario.operator_assignments:
+            self.draw_operator_assignment(assignment)
         for block in self.controller.scenario.blocks:
             self.draw_block(block)
+        for operator in self.controller.scenario.operators:
+            self.draw_operator(operator)
         self.draw_animation_tokens()
 
     def draw_block(self, block: ProcessBlock) -> None:
@@ -1369,6 +1645,97 @@ class CanvasView:
             font=("Arial", 8),
             fill=text_color,
             tags=f"block_{block.id}",
+        )
+
+    def draw_operator(self, operator: Operator) -> None:
+        self.canvas.create_rectangle(
+            operator.x + 4,
+            operator.y + 4,
+            operator.x + operator.width + 4,
+            operator.y + operator.height + 4,
+            fill="#cbd5e1",
+            outline="",
+            tags=f"operator_{operator.id}",
+        )
+        self.canvas.create_rectangle(
+            operator.x,
+            operator.y,
+            operator.x + operator.width,
+            operator.y + operator.height,
+            fill="#f8fafc",
+            outline="#7c3aed",
+            width=3,
+            tags=f"operator_{operator.id}",
+        )
+        self.canvas.create_oval(
+            operator.x + 10,
+            operator.y + 12,
+            operator.x + 34,
+            operator.y + 36,
+            fill="#7c3aed",
+            outline="",
+            tags=f"operator_{operator.id}",
+        )
+        self.canvas.create_text(
+            operator.x + 22,
+            operator.y + 24,
+            text="OP",
+            font=("Arial", 8, "bold"),
+            fill="white",
+            tags=f"operator_{operator.id}",
+        )
+        self.canvas.create_text(
+            operator.x + 76,
+            operator.y + 20,
+            text=operator.name,
+            font=("Arial", 9, "bold"),
+            fill="#111827",
+            width=78,
+            tags=f"operator_{operator.id}",
+        )
+        self.canvas.create_text(
+            operator.x + 76,
+            operator.y + 44,
+            text=f"{len(operator.qualified_process_types)} types",
+            font=("Arial", 8),
+            fill="#475569",
+            tags=f"operator_{operator.id}",
+        )
+
+    def draw_operator_assignment(self, assignment: OperatorAssignment) -> None:
+        operator = self.controller.find_operator(assignment.operator_id)
+        block = self.controller.find_block(assignment.block_id)
+        if operator is None or block is None:
+            return
+
+        line_points, delete_position = self._connection_path(operator, block)
+        self.canvas.create_line(
+            *line_points,
+            fill="#7c3aed",
+            width=3,
+            smooth=True,
+            dash=(6, 4),
+            tags=f"opassign_{assignment.id}",
+        )
+
+        mid_x, mid_y = delete_position
+        self.canvas.create_oval(
+            mid_x - 8,
+            mid_y - 8,
+            mid_x + 8,
+            mid_y + 8,
+            fill="#7c3aed",
+            outline="white",
+            width=2,
+            tags=f"opassign_{assignment.id}_delete",
+        )
+        self.canvas.create_text(
+            mid_x,
+            mid_y,
+            text="x",
+            font=("Arial", 10, "bold"),
+            fill="white",
+            tags=f"opassign_{assignment.id}_delete",
         )
 
     def _block_canvas_title(self, block: ProcessBlock) -> str:
@@ -1606,17 +1973,21 @@ class CanvasView:
             tags=("animation_token", f"token_{token.token_id}"),
         )
 
-    def show_connection_start(self, block_id: int) -> None:
-        block = self.controller.find_block(block_id)
-        if not block:
+    def show_connection_start(self, kind: str, target_id: int) -> None:
+        target = (
+            self.controller.find_operator(target_id)
+            if kind == "operator"
+            else self.controller.find_block(target_id)
+        )
+        if not target:
             return
         self.canvas.config(cursor="tcross", bg="#fff7ed")
         self.canvas.delete("connection_highlight")
         self.canvas.create_rectangle(
-            block.x - 5,
-            block.y - 5,
-            block.x + block.width + 5,
-            block.y + block.height + 5,
+            target.x - 5,
+            target.y - 5,
+            target.x + target.width + 5,
+            target.y + target.height + 5,
             outline="#ef4444",
             width=4,
             dash=(5, 5),
@@ -1636,28 +2007,45 @@ class CanvasView:
             self.controller.delete_connection(connection_id)
             return
 
+        assignment_id = self._operator_assignment_delete_at(x, y)
+        if assignment_id is not None:
+            self.controller.delete_operator_assignment(assignment_id)
+            return
+
         token_id = self._animation_token_at(x, y)
         if token_id is not None:
             self.controller.select_animation_token(token_id)
             return
 
         block_id = self._block_at(x, y)
+        operator_id = self._operator_at(x, y)
         if event.state & 0x0001:
             if block_id is not None:
                 self.controller.start_or_finish_connection(block_id)
+            elif operator_id is not None:
+                self.controller.start_or_finish_operator_connection(operator_id)
             return
 
         if block_id is not None:
             self.drag_block_id = block_id
+            self.drag_operator_id = None
+            self.drag_x = x
+            self.drag_y = y
+            return
+
+        if operator_id is not None:
+            self.drag_operator_id = operator_id
+            self.drag_block_id = None
             self.drag_x = x
             self.drag_y = y
             return
 
         self.drag_block_id = None
+        self.drag_operator_id = None
         self.controller.select_animation_token(None)
 
     def on_drag(self, event: tk.Event) -> None:
-        if self.drag_block_id is None:
+        if self.drag_block_id is None and self.drag_operator_id is None:
             return
 
         x = self.canvas.canvasx(event.x)
@@ -1665,33 +2053,57 @@ class CanvasView:
         dx = x - self.drag_x
         dy = y - self.drag_y
 
-        self.controller.move_block(self.drag_block_id, dx, dy)
+        if self.drag_block_id is not None:
+            self.controller.move_block(self.drag_block_id, dx, dy)
+        elif self.drag_operator_id is not None:
+            self.controller.move_operator(self.drag_operator_id, dx, dy)
         self.drag_x = x
         self.drag_y = y
 
     def on_release(self, _event: tk.Event) -> None:
         self.drag_block_id = None
+        self.drag_operator_id = None
 
     def on_double_click(self, event: tk.Event) -> None:
-        block_id = self._block_at(self.canvas.canvasx(event.x), self.canvas.canvasy(event.y))
+        x = self.canvas.canvasx(event.x)
+        y = self.canvas.canvasy(event.y)
+        block_id = self._block_at(x, y)
         if block_id is not None:
             self.controller.edit_block_parameters(block_id)
+            return
+        operator_id = self._operator_at(x, y)
+        if operator_id is not None:
+            self.controller.edit_operator(operator_id)
 
     def on_right_click(self, event: tk.Event) -> None:
-        block_id = self._block_at(self.canvas.canvasx(event.x), self.canvas.canvasy(event.y))
-        if block_id is None:
+        x = self.canvas.canvasx(event.x)
+        y = self.canvas.canvasy(event.y)
+        block_id = self._block_at(x, y)
+        operator_id = self._operator_at(x, y)
+        if block_id is None and operator_id is None:
             return
 
         menu = tk.Menu(self.controller.root, tearoff=0)
-        menu.add_command(
-            label="설정",
-            command=lambda: self.controller.edit_block_parameters(block_id),
-        )
-        menu.add_separator()
-        menu.add_command(
-            label="삭제",
-            command=lambda: self.controller.delete_block(block_id),
-        )
+        if block_id is not None:
+            menu.add_command(
+                label="설정",
+                command=lambda: self.controller.edit_block_parameters(block_id),
+            )
+            menu.add_separator()
+            menu.add_command(
+                label="삭제",
+                command=lambda: self.controller.delete_block(block_id),
+            )
+        elif operator_id is not None:
+            menu.add_command(
+                label="설정",
+                command=lambda: self.controller.edit_operator(operator_id),
+            )
+            menu.add_separator()
+            menu.add_command(
+                label="삭제",
+                command=lambda: self.controller.delete_operator(operator_id),
+            )
         menu.post(event.x_root, event.y_root)
 
     def on_mousewheel(self, event: tk.Event) -> None:
@@ -1708,11 +2120,27 @@ class CanvasView:
                     return int(tag.split("_")[1])
         return None
 
+    def _operator_at(self, x: float, y: float) -> int | None:
+        clicked = self.canvas.find_overlapping(x, y, x, y)
+        for item in clicked:
+            for tag in self.canvas.gettags(item):
+                if tag.startswith("operator_"):
+                    return int(tag.split("_")[1])
+        return None
+
     def _connection_delete_at(self, x: float, y: float) -> int | None:
         clicked = self.canvas.find_overlapping(x, y, x, y)
         for item in clicked:
             for tag in self.canvas.gettags(item):
                 if tag.startswith("conn_") and tag.endswith("_delete"):
+                    return int(tag.split("_")[1])
+        return None
+
+    def _operator_assignment_delete_at(self, x: float, y: float) -> int | None:
+        clicked = self.canvas.find_overlapping(x, y, x, y)
+        for item in clicked:
+            for tag in self.canvas.gettags(item):
+                if tag.startswith("opassign_") and tag.endswith("_delete"):
                     return int(tag.split("_")[1])
         return None
 

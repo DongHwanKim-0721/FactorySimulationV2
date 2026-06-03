@@ -49,6 +49,51 @@ def test_delete_block_cascades_connections():
     assert scenario.connections == []
 
 
+def test_operator_assignment_validation_and_cascading_deletion():
+    scenario = Scenario()
+    scenario.add_block("INPUT", x=0, y=0, material_name="A", input_quantity=10)
+    scenario.add_block("BENDING", x=200, y=0, process_time_per_ea=1)
+    scenario.add_block("HOIST", x=400, y=0)
+    scenario.add_block("WORK_WAITING", x=600, y=0)
+    scenario.add_block("FREE", x=800, y=0)
+    drawing_operator = scenario.add_operator(
+        "Drawing",
+        x=40,
+        y=200,
+        qualified_process_types={"DRAWING", "HEAT"},
+    )
+    bending_operator = scenario.add_operator(
+        "Bending",
+        x=180,
+        y=200,
+        qualified_process_types={"BENDING"},
+    )
+
+    scenario.add_operator_assignment(drawing_operator.id, 1)
+    scenario.add_operator_assignment(drawing_operator.id, 3)
+    scenario.add_operator_assignment(drawing_operator.id, 4)
+    scenario.add_operator_assignment(drawing_operator.id, 5)
+
+    with pytest.raises(ValueError, match="not qualified"):
+        scenario.add_operator_assignment(drawing_operator.id, 2)
+
+    scenario.add_operator_assignment(bending_operator.id, 2)
+
+    with pytest.raises(ValueError, match="already has"):
+        scenario.add_operator_assignment(drawing_operator.id, 2)
+
+    scenario.delete_block(2)
+    assert [assignment.block_id for assignment in scenario.operator_assignments] == [
+        1,
+        3,
+        4,
+        5,
+    ]
+
+    scenario.delete_operator(drawing_operator.id)
+    assert scenario.operator_assignments == []
+
+
 def test_save_load_roundtrip_then_simulate_bundle_scenario():
     scenario = Scenario()
     scenario.add_block(
@@ -93,6 +138,42 @@ def test_save_load_roundtrip_then_simulate_bundle_scenario():
         path.unlink(missing_ok=True)
 
 
+def test_save_load_roundtrip_preserves_operators_and_assignments():
+    scenario = Scenario()
+    scenario.add_block(
+        "INPUT",
+        x=0,
+        y=0,
+        product_name="P1",
+        material_name="A",
+        input_quantity=10,
+    )
+    scenario.add_block("CUTTING", x=200, y=0, process_time_per_ea=1)
+    scenario.add_connection(1, 2)
+    operator = scenario.add_operator(
+        "Operator A",
+        x=100,
+        y=250,
+        qualified_process_types={"CUTTING", "HEAT"},
+    )
+    scenario.add_operator_assignment(operator.id, 2)
+    path = Path("tests/.tmp_operator_scenario.json")
+
+    try:
+        save(scenario, path)
+        loaded = load(path)
+
+        assert loaded.operators[0].id == operator.id
+        assert loaded.operators[0].name == "Operator A"
+        assert loaded.operators[0].x == 100
+        assert loaded.operators[0].y == 250
+        assert loaded.operators[0].qualified_process_types == {"CUTTING", "HEAT"}
+        assert loaded.operator_assignments[0].operator_id == operator.id
+        assert loaded.operator_assignments[0].block_id == 2
+    finally:
+        path.unlink(missing_ok=True)
+
+
 def test_load_legacy_scenario_defaults_missing_product_name():
     path = Path("tests/.tmp_legacy_scenario.json")
     path.write_text(
@@ -121,6 +202,8 @@ def test_load_legacy_scenario_defaults_missing_product_name():
         loaded = load(path)
 
         assert loaded.blocks[0].product_name == "제품"
+        assert loaded.operators == []
+        assert loaded.operator_assignments == []
     finally:
         path.unlink(missing_ok=True)
 

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .models import ProcessBlock, ProcessConnection, Scenario
+from .models import Operator, OperatorAssignment, ProcessBlock, ProcessConnection, Scenario
 
 
 LEGACY_BLOCK_TYPE_MAP = {
@@ -41,6 +41,24 @@ def save(scenario: Scenario, path: str | Path) -> None:
                 "to": connection.to_block,
             }
             for connection in scenario.connections
+        ],
+        "operators": [
+            {
+                "id": operator.id,
+                "name": operator.name,
+                "x": operator.x,
+                "y": operator.y,
+                "qualified_process_types": sorted(operator.qualified_process_types),
+            }
+            for operator in scenario.operators
+        ],
+        "operator_assignments": [
+            {
+                "id": assignment.id,
+                "operator_id": assignment.operator_id,
+                "block_id": assignment.block_id,
+            }
+            for assignment in scenario.operator_assignments
         ],
     }
 
@@ -79,6 +97,26 @@ def load(path: str | Path) -> Scenario:
                 to_block=connection_data["to"],
             )
             for connection_data in data.get("connections", [])
+        ],
+        operators=[
+            Operator(
+                id=operator_data["id"],
+                name=operator_data["name"],
+                x=operator_data["x"],
+                y=operator_data["y"],
+                qualified_process_types=set(
+                    operator_data.get("qualified_process_types", [])
+                ),
+            )
+            for operator_data in data.get("operators", [])
+        ],
+        operator_assignments=[
+            OperatorAssignment(
+                id=assignment_data["id"],
+                operator_id=assignment_data["operator_id"],
+                block_id=assignment_data["block_id"],
+            )
+            for assignment_data in data.get("operator_assignments", [])
         ],
     )
     return scenario

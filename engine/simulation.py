@@ -5,7 +5,13 @@ from heapq import heappop, heappush
 from math import ceil
 from typing import Callable
 
-from .models import ProcessBlock, ProcessConnection
+from .models import (
+    Operator,
+    OperatorAssignment,
+    ProcessBlock,
+    ProcessConnection,
+    operator_can_handle_block,
+)
 
 
 @dataclass(frozen=True)
@@ -84,24 +90,28 @@ def topological_flow(
 def simulate(
     blocks: list[ProcessBlock],
     connections: list[ProcessConnection],
+    operators: list[Operator] | None = None,
+    operator_assignments: list[OperatorAssignment] | None = None,
 ) -> SimulationResult:
+    operators = operators or []
+    operator_assignments = operator_assignments or []
+
     _validate_block_fields(blocks)
     process_flow = _validate_and_topological_flow(blocks, connections)
     _validate_bundle_graph(blocks, connections)
+    _validate_operator_assignments(blocks, operators, operator_assignments)
+
+    if operator_assignments:
+        return _simulate_with_operator_constraints(
+            blocks,
+            connections,
+            operators,
+            operator_assignments,
+            process_flow,
+        )
 
     if not blocks:
-        return SimulationResult(
-            timeline=[],
-            total_time=0,
-            total_input_quantity=0,
-            final_output_quantity=0,
-            input_quantity_by_product={},
-            final_output_quantity_by_product={},
-            unique_product_count=0,
-            bottleneck_id=None,
-            bottleneck_throughput=0,
-            process_flow=[],
-        )
+        return _build_simulation_result([], blocks, connections, process_flow)
 
     block_by_id = {block.id: block for block in blocks}
     outgoing_by_id = _outgoing_by_id(connections)
@@ -140,7 +150,21 @@ def simulate(
             next_sequence=next_sequence,
         )
 
-    timeline = [results_by_block[block_id] for block_id in process_flow]
+    return _build_simulation_result(
+        [results_by_block[block_id] for block_id in process_flow],
+        blocks,
+        connections,
+        process_flow,
+    )
+
+
+def _build_simulation_result(
+    timeline: list[BlockResult],
+    blocks: list[ProcessBlock],
+    connections: list[ProcessConnection],
+    process_flow: list[int],
+) -> SimulationResult:
+    block_by_id = {block.id: block for block in blocks}
     bottleneck_id, bottleneck_throughput = _analyze_bottleneck(timeline, block_by_id)
     input_quantity_by_product = _input_quantity_by_product(timeline, block_by_id)
     final_output_quantity_by_product = _final_output_quantity_by_product(
@@ -163,6 +187,264 @@ def simulate(
         bottleneck_throughput=bottleneck_throughput,
         process_flow=process_flow,
     )
+
+
+def _validate_operator_assignments(
+    blocks: list[ProcessBlock],
+    operators: list[Operator],
+    operator_assignments: list[OperatorAssignment],
+) -> None:
+    block_by_id = {block.id: block for block in blocks}
+    operator_by_id = {operator.id: operator for operator in operators}
+    seen_pairs: set[tuple[int, int]] = set()
+    assigned_blocks: set[int] = set()
+
+    for assignment in operator_assignments:
+        if assignment.operator_id not in operator_by_id:
+            raise ValueError("Operator assignment references a missing operator.")
+        if assignment.block_id not in block_by_id:
+            raise ValueError("Operator assignment references a missing process block.")
+
+        pair = (assignment.operator_id, assignment.block_id)
+        if pair in seen_pairs:
+            raise ValueError("Duplicate operator assignment is not allowed.")
+        seen_pairs.add(pair)
+
+        if assignment.block_id in assigned_blocks:
+            raise ValueError("A process block can have only one assigned operator.")
+        assigned_blocks.add(assignment.block_id)
+
+        operator = operator_by_id[assignment.operator_id]
+        block = block_by_id[assignment.block_id]
+        if not operator_can_handle_block(operator, block):
+            raise ValueError("Operator is not qualified for this process type.")
+
+
+def _simulate_with_operator_constraints(
+    blocks: list[ProcessBlock],
+    connections: list[ProcessConnection],
+    operators: list[Operator],
+    operator_assignments: list[OperatorAssignment],
+    process_flow: list[int],
+) -> SimulationResult:
+    if not blocks:
+        return _build_simulation_result([], blocks, connections, process_flow)
+
+    block_by_id = {block.id: block for block in blocks}
+    outgoing_by_id = _outgoing_by_id(connections)
+    incoming_by_id: dict[int, list[int]] = {block.id: [] for block in blocks}
+    for connection in connections:
+        incoming_by_id[connection.to_block].append(connection.from_block)
+
+    operator_by_id = {operator.id: operator for operator in operators}
+    operator_blocks: dict[int, list[int]] = {operator.id: [] for operator in operators}
+    assigned_operator_by_block: dict[int, int] = {}
+    for assignment in operator_assignments:
+        operator_blocks.setdefault(assignment.operator_id, []).append(assignment.block_id)
+        assigned_operator_by_block[assignment.block_id] = assignment.operator_id
+
+    assigned_block_ids = set(assigned_operator_by_block)
+    process_order = {block_id: index for index, block_id in enumerate(process_flow)}
+    arrivals_by_block: dict[int, list[_Bundle]] = {block.id: [] for block in blocks}
+    processed_by_block: dict[int, list[_ProcessedBundle]] = {
+        block.id: [] for block in blocks
+    }
+    completed_block_ids: set[int] = set()
+    assigned_input_done: set[int] = set()
+    block_available_at = {block.id: 0.0 for block in blocks}
+    operator_available_at = {operator.id: 0.0 for operator in operators}
+    bundle_sequence = 0
+    next_bundle_id = 1
+
+    def next_sequence() -> int:
+        nonlocal bundle_sequence
+        bundle_sequence += 1
+        return bundle_sequence
+
+    def new_bundle_id() -> int:
+        nonlocal next_bundle_id
+        bundle_id = next_bundle_id
+        next_bundle_id += 1
+        return bundle_id
+
+    def predecessors_complete(block_id: int) -> bool:
+        return all(parent_id in completed_block_ids for parent_id in incoming_by_id[block_id])
+
+    def route_processed(block_id: int, processed: list[_ProcessedBundle]) -> None:
+        processed_by_block[block_id].extend(processed)
+        _route_processed_bundles(
+            processed=processed,
+            outgoing_connections=outgoing_by_id.get(block_id, []),
+            block_by_id=block_by_id,
+            arrivals_by_block=arrivals_by_block,
+            new_bundle_id=new_bundle_id,
+            next_sequence=next_sequence,
+        )
+
+    def process_ready_unassigned_blocks() -> bool:
+        made_progress = False
+        while True:
+            progressed_this_pass = False
+            for block_id in process_flow:
+                if block_id in completed_block_ids or block_id in assigned_block_ids:
+                    continue
+                if not predecessors_complete(block_id):
+                    continue
+
+                block = block_by_id[block_id]
+                if _is_input(block):
+                    processed = _process_input_block(
+                        block,
+                        new_bundle_id,
+                        next_sequence,
+                    )
+                elif _is_hoist(block):
+                    processed = _process_hoist_block(block, arrivals_by_block[block_id])
+                else:
+                    processed = _process_work_block(block, arrivals_by_block[block_id])
+
+                route_processed(block_id, processed)
+                completed_block_ids.add(block_id)
+                progressed_this_pass = True
+                made_progress = True
+
+            if not progressed_this_pass:
+                return made_progress
+
+    def mark_completed_assigned_blocks() -> bool:
+        made_progress = False
+        for block_id in process_flow:
+            if block_id not in assigned_block_ids or block_id in completed_block_ids:
+                continue
+
+            block = block_by_id[block_id]
+            if _is_input(block):
+                if block.input_quantity == 0 or block_id in assigned_input_done:
+                    completed_block_ids.add(block_id)
+                    made_progress = True
+                continue
+
+            if predecessors_complete(block_id) and not arrivals_by_block[block_id]:
+                completed_block_ids.add(block_id)
+                made_progress = True
+
+        return made_progress
+
+    def assigned_block_ready_time(block_id: int) -> float | None:
+        if block_id in completed_block_ids:
+            return None
+
+        block = block_by_id[block_id]
+        if _is_input(block):
+            if block.input_quantity == 0 or block_id in assigned_input_done:
+                return None
+            return block_available_at[block_id]
+
+        pending = arrivals_by_block[block_id]
+        if not pending:
+            return None
+
+        next_arrival = _sort_bundles(pending)[0].arrival_time
+        return max(block_available_at[block_id], next_arrival)
+
+    def next_operator_service() -> tuple[float, float, int, int, int] | None:
+        candidates: list[tuple[float, float, int, int, int]] = []
+        for operator_id in sorted(operator_by_id):
+            block_candidates: list[tuple[float, int, int]] = []
+            for block_id in operator_blocks.get(operator_id, []):
+                ready_time = assigned_block_ready_time(block_id)
+                if ready_time is None:
+                    continue
+                block_candidates.append(
+                    (ready_time, process_order[block_id], block_id)
+                )
+
+            if not block_candidates:
+                continue
+
+            ready_time, _, block_id = min(block_candidates)
+            service_start = max(operator_available_at[operator_id], ready_time)
+            candidates.append(
+                (
+                    service_start,
+                    ready_time,
+                    operator_id,
+                    process_order[block_id],
+                    block_id,
+                )
+            )
+
+        return min(candidates) if candidates else None
+
+    def process_assigned_service(operator_id: int, block_id: int, start_time: float) -> None:
+        block = block_by_id[block_id]
+
+        if _is_input(block):
+            processed = _process_input_block_at(
+                block,
+                start_time,
+                new_bundle_id,
+                next_sequence,
+            )
+            assigned_input_done.add(block_id)
+        else:
+            waiting_bundles = [
+                bundle
+                for bundle in arrivals_by_block[block_id]
+                if bundle.arrival_time <= start_time
+            ]
+            if not waiting_bundles:
+                waiting_bundles = [_sort_bundles(arrivals_by_block[block_id])[0]]
+
+            waiting_ids = {bundle.bundle_id for bundle in waiting_bundles}
+            arrivals_by_block[block_id] = [
+                bundle
+                for bundle in arrivals_by_block[block_id]
+                if bundle.bundle_id not in waiting_ids
+            ]
+
+            if _is_hoist(block):
+                processed = _process_hoist_service_batch(
+                    block,
+                    waiting_bundles,
+                    start_time,
+                )
+            else:
+                processed = _process_work_service_batch(
+                    block,
+                    waiting_bundles,
+                    start_time,
+                )
+
+        completion_time = max(
+            (item.completion_time for item in processed),
+            default=start_time,
+        )
+        block_available_at[block_id] = completion_time
+        operator_available_at[operator_id] = completion_time
+        route_processed(block_id, processed)
+
+    while len(completed_block_ids) < len(blocks):
+        made_progress = process_ready_unassigned_blocks()
+        made_progress = mark_completed_assigned_blocks() or made_progress
+
+        if len(completed_block_ids) == len(blocks):
+            break
+
+        candidate = next_operator_service()
+        if candidate is not None:
+            service_start, _ready_time, operator_id, _order, block_id = candidate
+            process_assigned_service(operator_id, block_id, service_start)
+            continue
+
+        if not made_progress:
+            raise ValueError("Operator-aware simulation could not make progress.")
+
+    timeline = [
+        _build_block_result(block_by_id[block_id], processed_by_block[block_id])
+        for block_id in process_flow
+    ]
+    return _build_simulation_result(timeline, blocks, connections, process_flow)
 
 
 def _validate_block_fields(blocks: list[ProcessBlock]) -> None:
@@ -306,6 +588,33 @@ def _process_input_block(
     ]
 
 
+def _process_input_block_at(
+    block: ProcessBlock,
+    start_time: float,
+    new_bundle_id: Callable[[], int],
+    next_sequence: Callable[[], int],
+) -> list[_ProcessedBundle]:
+    if block.input_quantity == 0:
+        return []
+
+    bundle = _Bundle(
+        bundle_id=new_bundle_id(),
+        product_name=block.product_name,
+        material_name=block.material_name,
+        quantity=block.input_quantity,
+        source_block_id=block.id,
+        arrival_time=start_time,
+        sequence=next_sequence(),
+    )
+    return [
+        _ProcessedBundle(
+            bundle=bundle,
+            start_time=start_time,
+            completion_time=start_time + float(block.input_time),
+        )
+    ]
+
+
 def _process_hoist_block(
     block: ProcessBlock,
     arrivals: list[_Bundle],
@@ -321,6 +630,31 @@ def _process_hoist_block(
             _ProcessedBundle(
                 bundle=bundle,
                 start_time=start_time,
+                completion_time=completion_time,
+                transport_trips=trips,
+            )
+        )
+        current_time = completion_time
+
+    return processed
+
+
+def _process_hoist_service_batch(
+    block: ProcessBlock,
+    arrivals: list[_Bundle],
+    start_time: float,
+) -> list[_ProcessedBundle]:
+    current_time = start_time
+    processed: list[_ProcessedBundle] = []
+
+    for bundle in _sort_bundles(arrivals):
+        bundle_start_time = max(current_time, bundle.arrival_time)
+        trips = ceil(bundle.quantity / block.transport_capacity)
+        completion_time = bundle_start_time + trips * block.transport_time
+        processed.append(
+            _ProcessedBundle(
+                bundle=bundle,
+                start_time=bundle_start_time,
                 completion_time=completion_time,
                 transport_trips=trips,
             )
@@ -361,6 +695,45 @@ def _process_work_block(
                 _ProcessedBundle(
                     bundle=bundle,
                     start_time=start_time,
+                    completion_time=completion_time,
+                )
+            )
+            current_time = completion_time
+
+        pending = [
+            bundle for bundle in pending if bundle.bundle_id not in same_material_ids
+        ]
+
+    return processed
+
+
+def _process_work_service_batch(
+    block: ProcessBlock,
+    arrivals: list[_Bundle],
+    start_time: float,
+) -> list[_ProcessedBundle]:
+    current_time = start_time
+    pending = _sort_bundles(arrivals)
+    processed: list[_ProcessedBundle] = []
+
+    while pending:
+        material_name = pending[0].material_name
+        same_material = [
+            bundle for bundle in pending if bundle.material_name == material_name
+        ]
+        same_material_ids = {bundle.bundle_id for bundle in same_material}
+
+        for bundle in same_material:
+            bundle_start_time = max(current_time, bundle.arrival_time)
+            duration = (
+                ceil(bundle.quantity / block.concurrent_capacity)
+                * block.process_time_per_ea
+            )
+            completion_time = bundle_start_time + duration
+            processed.append(
+                _ProcessedBundle(
+                    bundle=bundle,
+                    start_time=bundle_start_time,
                     completion_time=completion_time,
                 )
             )

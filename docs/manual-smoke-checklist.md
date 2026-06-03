@@ -1,6 +1,6 @@
 # Manual Smoke Checklist: FactorySimulation
 
-Updated: 2026-05-28
+Updated: 2026-06-04
 
 Use this checklist for manual tkinter verification after changes to `app.py`.
 
@@ -14,6 +14,25 @@ Use this checklist for manual tkinter verification after changes to `app.py`.
 - Add a 호이스트 block, edit transport quantity and move time.
 - Add, move, connect, delete blocks and connections.
 - Confirm connecting into an INPUT block shows a Korean error message.
+
+## Operator Resources
+
+- Open the operator tab and add an operator from the separate operator control.
+- Enter an operator name and select qualified process types.
+- Double-click the operator card, edit the name and qualified process types, and save.
+- Drag the operator card in the central diagram.
+- Shift-click an operator, then a process block, and confirm an operator-process assignment line appears.
+- Shift-click a process block, then an operator, and confirm the same assignment type is created.
+- Delete an operator assignment using the resource line delete control.
+- Assign an operator to raw material input, hoist, Free Block, and work waiting blocks without requiring matching qualifications.
+- Try assigning an unqualified operator to a non-universal process block and confirm a warning appears with no assignment added.
+- Try assigning a second operator to a process block that already has one operator and confirm a warning appears with no assignment added.
+- Assign one operator to multiple process blocks and confirm all resource lines remain visible.
+- Save and reload a scenario with operators, qualifications, card positions, and assignments.
+- Run a simulation, then edit an operator or assignment and confirm the result is marked stale.
+- Confirm a scenario with operators but no assignments simulates like the same scenario without operators.
+- Confirm a simple shared-operator scenario delays the second ready process through existing waiting time values.
+- Confirm the result panel does not add operator utilization, idle-time, or separate operator reports.
 
 ## Visual Refresh
 

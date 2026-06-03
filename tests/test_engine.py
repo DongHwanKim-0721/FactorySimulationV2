@@ -1,6 +1,6 @@
 import pytest
 
-from engine.models import ProcessBlock, ProcessConnection
+from engine.models import Operator, OperatorAssignment, ProcessBlock, ProcessConnection
 from engine.simulation import simulate, topological_flow
 
 
@@ -60,6 +60,14 @@ def processed_by_id(result):
 
 def bundles_for(result, block_id: int):
     return next(item.bundles for item in result.timeline if item.block_id == block_id)
+
+
+def starts_for(result, block_id: int):
+    return next(item.start_times for item in result.timeline if item.block_id == block_id)
+
+
+def waits_for(result, block_id: int):
+    return next(item.waiting_times for item in result.timeline if item.block_id == block_id)
 
 
 def test_input_only_block_generates_one_bundle_and_preserves_quantity():
@@ -399,3 +407,156 @@ def test_product_label_does_not_affect_material_grouping():
         ("P2", "A", 2),
         ("P3", "B", 3),
     ]
+
+
+def test_unconnected_operators_do_not_change_simulation_results():
+    blocks = [
+        input_block(1, quantity=10),
+        process_block(2, process_time=1, concurrent_capacity=1),
+        hoist_block(3, transport_capacity=4, transport_time=3),
+    ]
+    connections = [
+        ProcessConnection(id=1, from_block=1, to_block=2),
+        ProcessConnection(id=2, from_block=2, to_block=3),
+    ]
+    operator = Operator(
+        id=1,
+        name="Operator A",
+        x=0,
+        y=0,
+        qualified_process_types={"CUTTING"},
+    )
+
+    baseline = simulate(blocks, connections)
+    with_unconnected_operator = simulate(blocks, connections, [operator], [])
+
+    assert with_unconnected_operator.total_time == baseline.total_time
+    assert [
+        item.start_times for item in with_unconnected_operator.timeline
+    ] == [item.start_times for item in baseline.timeline]
+    assert [
+        item.completion_times for item in with_unconnected_operator.timeline
+    ] == [item.completion_times for item in baseline.timeline]
+
+
+def test_shared_operator_delays_independent_ready_processes():
+    blocks = [
+        input_block(1, quantity=1),
+        input_block(2, quantity=1, material_name="B"),
+        process_block(3, process_time=10, concurrent_capacity=1),
+        process_block(4, process_time=10, concurrent_capacity=1),
+    ]
+    connections = [
+        ProcessConnection(id=1, from_block=1, to_block=3),
+        ProcessConnection(id=2, from_block=2, to_block=4),
+    ]
+    operator = Operator(
+        id=1,
+        name="Operator A",
+        x=0,
+        y=0,
+        qualified_process_types={"CUTTING"},
+    )
+    assignments = [
+        OperatorAssignment(id=1, operator_id=1, block_id=3),
+        OperatorAssignment(id=2, operator_id=1, block_id=4),
+    ]
+
+    result = simulate(blocks, connections, [operator], assignments)
+
+    assert starts_for(result, 3) == [0.0]
+    assert starts_for(result, 4) == [10.0]
+    assert waits_for(result, 4) == [10.0]
+    assert result.total_time == 20
+
+
+def test_operator_assignment_preserves_linear_hoist_flow_order():
+    blocks = [
+        input_block(1, quantity=10),
+        process_block(2, process_time=1, concurrent_capacity=10, block_type="DRAWING"),
+        hoist_block(3, transport_capacity=10, transport_time=5),
+        process_block(4, process_time=1, concurrent_capacity=10, block_type="POSTPROCESS"),
+    ]
+    connections = [
+        ProcessConnection(id=1, from_block=1, to_block=2),
+        ProcessConnection(id=2, from_block=2, to_block=3),
+        ProcessConnection(id=3, from_block=3, to_block=4),
+    ]
+    operator = Operator(
+        id=1,
+        name="Operator A",
+        x=0,
+        y=0,
+        qualified_process_types={"DRAWING", "POSTPROCESS"},
+    )
+    assignments = [
+        OperatorAssignment(id=1, operator_id=1, block_id=2),
+        OperatorAssignment(id=2, operator_id=1, block_id=4),
+    ]
+
+    result = simulate(blocks, connections, [operator], assignments)
+
+    assert starts_for(result, 2) == [0.0]
+    assert starts_for(result, 3) == [1.0]
+    assert starts_for(result, 4) == [6.0]
+    assert result.total_time == 7
+
+
+def test_shared_operator_uses_earliest_ready_before_flow_order():
+    blocks = [
+        input_block(1, quantity=1, input_time=5),
+        input_block(2, quantity=1, material_name="B", input_time=0),
+        process_block(3, process_time=10, concurrent_capacity=1),
+        process_block(4, process_time=10, concurrent_capacity=1),
+    ]
+    connections = [
+        ProcessConnection(id=1, from_block=1, to_block=3),
+        ProcessConnection(id=2, from_block=2, to_block=4),
+    ]
+    operator = Operator(
+        id=1,
+        name="Operator A",
+        x=0,
+        y=0,
+        qualified_process_types={"CUTTING"},
+    )
+    assignments = [
+        OperatorAssignment(id=1, operator_id=1, block_id=3),
+        OperatorAssignment(id=2, operator_id=1, block_id=4),
+    ]
+
+    result = simulate(blocks, connections, [operator], assignments)
+
+    assert starts_for(result, 4) == [0.0]
+    assert starts_for(result, 3) == [10.0]
+
+
+def test_shared_operator_clears_current_waiting_bundles_without_future_prediction():
+    blocks = [
+        input_block(1, material_name="A", quantity=1, input_time=0),
+        input_block(2, material_name="A", quantity=1, input_time=100),
+        input_block(3, material_name="B", quantity=1, input_time=10),
+        process_block(4, process_time=1, concurrent_capacity=1),
+        process_block(5, process_time=1, concurrent_capacity=1),
+    ]
+    connections = [
+        ProcessConnection(id=1, from_block=1, to_block=4),
+        ProcessConnection(id=2, from_block=2, to_block=4),
+        ProcessConnection(id=3, from_block=3, to_block=5),
+    ]
+    operator = Operator(
+        id=1,
+        name="Operator A",
+        x=0,
+        y=0,
+        qualified_process_types={"CUTTING"},
+    )
+    assignments = [
+        OperatorAssignment(id=1, operator_id=1, block_id=4),
+        OperatorAssignment(id=2, operator_id=1, block_id=5),
+    ]
+
+    result = simulate(blocks, connections, [operator], assignments)
+
+    assert starts_for(result, 4) == [0.0, 100.0]
+    assert starts_for(result, 5) == [10.0]
