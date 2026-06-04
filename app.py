@@ -14,6 +14,7 @@ from engine.models import (
     UNIVERSAL_OPERATOR_BLOCK_TYPES,
     operator_can_handle_block,
 )
+from engine.weekly_production import calculate_weekly_expected_production
 from engine.operator_library import (
     OperatorTemplate,
     default_operator_library_path,
@@ -38,6 +39,62 @@ class BlockType:
     default_input_time: float = 0.0
     default_transport_capacity: int = 4
     default_transport_time: float = 3.0
+
+
+@dataclass(frozen=True)
+class MonthlyInputChoice:
+    material_name: str
+    source_rows: tuple[tuple[int, int, float], ...]
+    product_names: tuple[str, ...] = ()
+    material_names: tuple[str, ...] = ()
+    is_total: bool = False
+
+    @property
+    def block_ids(self) -> tuple[int, ...]:
+        return tuple(block_id for block_id, _quantity, _unit_weight in self.source_rows)
+
+    @property
+    def input_count(self) -> int:
+        return len(self.source_rows)
+
+    @property
+    def total_input_quantity(self) -> int:
+        return sum(quantity for _block_id, quantity, _unit_weight in self.source_rows)
+
+    @property
+    def default_unit_weight_kg_per_ea(self) -> float:
+        if self.total_input_quantity <= 0:
+            return self.source_rows[0][2] if self.source_rows else 0
+        weighted_total = sum(
+            quantity * unit_weight
+            for _block_id, quantity, unit_weight in self.source_rows
+        )
+        return weighted_total / self.total_input_quantity
+
+    def unit_weight_for_output(
+        self,
+        output_quantity_by_source_block: dict[int, int],
+    ) -> float:
+        weighted_total = 0.0
+        output_total = 0
+        for block_id, _quantity, unit_weight in self.source_rows:
+            output_quantity = output_quantity_by_source_block.get(block_id, 0)
+            weighted_total += output_quantity * unit_weight
+            output_total += output_quantity
+        if output_total > 0:
+            return weighted_total / output_total
+        return self.default_unit_weight_kg_per_ea
+
+
+def unique_preserving_order(names: list[str]) -> tuple[str, ...]:
+    seen: set[str] = set()
+    unique_names: list[str] = []
+    for name in names:
+        if name in seen:
+            continue
+        seen.add(name)
+        unique_names.append(name)
+    return tuple(unique_names)
 
 
 BLOCK_TYPES: dict[str, BlockType] = {
@@ -95,6 +152,119 @@ def format_qualification_summary(qualified_process_types: set[str]) -> str:
 
 def format_operator_qualification_summary(operator: Operator) -> str:
     return format_qualification_summary(operator.qualified_process_types)
+
+
+def format_compact_number(value: float, digits: int = 2) -> str:
+    text = f"{value:,.{digits}f}".rstrip("0").rstrip(".")
+    return "0" if text == "-0" else text
+
+
+def format_monthly_tons(value: float) -> str:
+    return f"{format_compact_number(value)} ton"
+
+
+def build_monthly_input_choices(input_blocks: list[ProcessBlock]) -> list[MonthlyInputChoice]:
+    grouped: dict[str, list[ProcessBlock]] = {}
+    for block in input_blocks:
+        grouped.setdefault(block.material_name, []).append(block)
+
+    choices: list[MonthlyInputChoice] = []
+    if len(grouped) > 1:
+        choices.append(
+            MonthlyInputChoice(
+                material_name="전체 원자재",
+                source_rows=tuple(
+                    (block.id, block.input_quantity, block.unit_weight_kg_per_ea)
+                    for block in input_blocks
+                ),
+                product_names=unique_preserving_order(
+                    [block.product_name for block in input_blocks]
+                ),
+                material_names=unique_preserving_order(
+                    [block.material_name for block in input_blocks]
+                ),
+                is_total=True,
+            )
+        )
+    for material_name, blocks in grouped.items():
+        choices.append(
+            MonthlyInputChoice(
+                material_name=material_name,
+                source_rows=tuple(
+                    (block.id, block.input_quantity, block.unit_weight_kg_per_ea)
+                    for block in blocks
+                ),
+                product_names=unique_preserving_order(
+                    [block.product_name for block in blocks]
+                ),
+                material_names=(material_name,),
+            )
+        )
+    return choices
+
+
+def format_monthly_input_choice(choice: MonthlyInputChoice) -> str:
+    if choice.is_total:
+        return "전체"
+
+    unit_weight = choice.default_unit_weight_kg_per_ea
+    choice_name = format_monthly_input_choice_name(choice)
+    if choice.input_count == 1 and not choice.is_total:
+        return (
+            f"{choice_name} "
+            f"({format_compact_number(unit_weight)} kg/EA)"
+        )
+    return (
+        f"{choice_name} "
+        f"({choice.input_count}개 투입, "
+        f"{format_compact_number(choice.total_input_quantity)} EA, "
+        f"평균 {format_compact_number(unit_weight)} kg/EA)"
+    )
+
+
+def format_monthly_input_choice_name(choice: MonthlyInputChoice) -> str:
+    product_text = format_choice_name_list(choice.product_names)
+    material_names = choice.material_names or (choice.material_name,)
+    material_text = format_choice_name_list(material_names)
+    prefix = "전체: " if choice.is_total else ""
+    return f"{prefix}{product_text}/{material_text}"
+
+
+def format_choice_name_list(names: tuple[str, ...]) -> str:
+    if not names:
+        return "미지정"
+    if len(names) <= 3:
+        return ", ".join(names)
+    return f"{', '.join(names[:3])} 외 {len(names) - 3}개"
+
+
+def monthly_output_quantity_for_choice(
+    choice: MonthlyInputChoice,
+    output_quantity_by_source_block: dict[int, int],
+) -> int:
+    return sum(
+        output_quantity_by_source_block.get(block_id, 0)
+        for block_id in choice.block_ids
+    )
+
+
+def realized_weekly_minutes_per_ea(
+    available_minutes: float,
+    result: SimulationResult,
+) -> float:
+    if result.final_output_quantity <= 0:
+        return 0
+    return available_minutes / result.final_output_quantity
+
+
+def is_limited_number_input(value: str, maximum: float) -> bool:
+    if value.strip() == "":
+        return True
+    try:
+        numeric_value = float(value)
+    except ValueError:
+        return False
+    return 0 <= numeric_value <= maximum
 
 
 TOKEN_STATE_LABELS = {
@@ -599,7 +769,7 @@ class App:
         block = self.scenario.add_block(
             block_type=block_type,
             x=150,
-            y=100 + len(self.scenario.blocks) * 100,
+            y=100 + len(self.scenario.blocks) * 84,
             process_time_per_ea=block_type_info.default_process_time_per_ea,
             concurrent_capacity=block_type_info.default_concurrent_capacity,
             input_quantity=block_type_info.default_input_quantity,
@@ -801,7 +971,7 @@ class App:
         block_type_info = BLOCK_TYPES[block.type]
         dialog = tk.Toplevel(self.root)
         dialog.title(f"{self.block_display_name(block)} 설정")
-        dialog.geometry("460x380")
+        dialog.geometry("460x420")
         dialog.configure(bg="#f8fafc")
         dialog.transient(self.root)
         dialog.grab_set()
@@ -831,6 +1001,7 @@ class App:
         material_name_var = tk.StringVar(value=block.material_name)
         input_quantity_var = tk.IntVar(value=block.input_quantity)
         input_time_var = tk.DoubleVar(value=block.input_time)
+        unit_weight_var = tk.DoubleVar(value=block.unit_weight_kg_per_ea)
         process_time_var = tk.DoubleVar(value=block.process_time_per_ea)
         concurrent_capacity_var = tk.IntVar(value=block.concurrent_capacity)
         transport_capacity_var = tk.IntVar(value=block.transport_capacity)
@@ -865,6 +1036,14 @@ class App:
                 row=row, column=0, sticky=tk.W, pady=5
             )
             ttk.Entry(form_frame, textvariable=input_time_var, width=22).grid(
+                row=row, column=1, sticky="ew", pady=5
+            )
+            row += 1
+
+            ttk.Label(form_frame, text="단위중량(kg/EA):").grid(
+                row=row, column=0, sticky=tk.W, pady=5
+            )
+            ttk.Entry(form_frame, textvariable=unit_weight_var, width=22).grid(
                 row=row, column=1, sticky="ew", pady=5
             )
         elif block.type == "HOIST":
@@ -902,6 +1081,7 @@ class App:
             try:
                 input_quantity = int(input_quantity_var.get())
                 input_time = float(input_time_var.get())
+                unit_weight = float(unit_weight_var.get())
                 process_time = float(process_time_var.get())
                 concurrent_capacity = int(concurrent_capacity_var.get())
                 transport_capacity = int(transport_capacity_var.get())
@@ -931,10 +1111,17 @@ class App:
                         "투입 원자재 수와 투입 시간은 0 이상이어야 합니다.",
                     )
                     return
+                if unit_weight <= 0:
+                    messagebox.showerror(
+                        "입력 오류",
+                        "단위중량(kg/EA)은 0보다 커야 합니다.",
+                    )
+                    return
                 block.product_name = product_name
                 block.material_name = material_name
                 block.input_quantity = input_quantity
                 block.input_time = input_time
+                block.unit_weight_kg_per_ea = unit_weight
             elif block.type == "HOIST":
                 if transport_capacity <= 0 or transport_time <= 0:
                     messagebox.showerror(
@@ -1700,6 +1887,11 @@ class CanvasView:
         block_type = BLOCK_TYPES[block.type]
         display_name = self._block_canvas_title(block)
         text_color = self._text_color_for_block(block.type)
+        text_x = block.x + block.width * 0.56
+        title_y = block.y + 18
+        metric_y1 = block.y + 42
+        metric_y2 = block.y + 55
+        text_width = max(int(block.width - 52), 56)
         block_tokens = [token for token in self.current_tokens if token.block_id == block.id]
         has_waiting = any(token.state == "waiting" for token in block_tokens)
         processing = [token for token in block_tokens if token.state == "processing"]
@@ -1757,12 +1949,12 @@ class CanvasView:
                 fill="#22c55e",
                 outline="",
                 tags=f"block_{block.id}",
-            )
+        )
         self.canvas.create_text(
-            block.x + 20,
-            block.y + 20,
+            block.x + 17,
+            block.y + 18,
             text=block_type.icon,
-            font=("Arial", 20),
+            font=("Arial", 16),
             fill=text_color,
             tags=f"block_{block.id}",
         )
@@ -1786,28 +1978,28 @@ class CanvasView:
                 tags=f"block_{block.id}",
             )
         self.canvas.create_text(
-            block.x + 75,
-            block.y + 20,
+            text_x,
+            title_y,
             text=display_name,
-            font=("Arial", 9, "bold"),
+            font=("Arial", 8, "bold"),
             fill=text_color,
-            width=88,
+            width=text_width,
             tags=f"block_{block.id}",
         )
         line1, line2 = self._block_metric_lines(block)
         self.canvas.create_text(
-            block.x + 75,
-            block.y + 45,
+            text_x,
+            metric_y1,
             text=line1,
-            font=("Arial", 8),
+            font=("Arial", 7),
             fill=text_color,
             tags=f"block_{block.id}",
         )
         self.canvas.create_text(
-            block.x + 75,
-            block.y + 60,
+            text_x,
+            metric_y2,
             text=line2,
-            font=("Arial", 8),
+            font=("Arial", 7),
             fill=text_color,
             tags=f"block_{block.id}",
         )
@@ -1905,8 +2097,17 @@ class CanvasView:
 
     def _block_canvas_title(self, block: ProcessBlock) -> str:
         if block.type == "INPUT":
-            return BLOCK_TYPES[block.type].label
+            product_name = self._compact_canvas_text(block.product_name, "제품")
+            material_name = self._compact_canvas_text(block.material_name, "원자재")
+            return f"제품: {product_name}\n원자재: {material_name}"
         return self.controller.block_display_name(block)
+
+    @staticmethod
+    def _compact_canvas_text(value: str, fallback: str, max_chars: int = 7) -> str:
+        text = value.strip() or fallback
+        if len(text) <= max_chars:
+            return text
+        return f"{text[:max_chars - 3]}..."
 
     def _text_color_for_block(self, block_type: str) -> str:
         if block_type in {"BENDING", "CUTTING", "PACKING"}:
@@ -2383,6 +2584,122 @@ class ResultView:
             style="Panel.TLabel",
         ).pack(fill=tk.X, pady=(4, 0))
 
+        monthly_frame = ttk.LabelFrame(
+            self.frame,
+            text="주간 예상 생산량",
+            padding=8,
+            style="Panel.TLabelframe",
+        )
+        monthly_frame.pack(fill=tk.X, pady=(0, 8))
+        monthly_frame.columnconfigure(1, weight=1)
+        monthly_frame.columnconfigure(3, weight=1)
+
+        self.monthly_operating_days_var = tk.StringVar(value="6")
+        self.monthly_daily_hours_var = tk.StringVar(value="24")
+        self.monthly_operating_rate_var = tk.StringVar(value="100")
+        self.monthly_selected_input_var = tk.StringVar(value="")
+        self.monthly_status_var = tk.StringVar(value="시뮬레이션 실행 필요")
+        self.monthly_result_var = tk.StringVar(value="먼저 시뮬레이션을 실행하세요.")
+        self._monthly_input_choices: dict[str, MonthlyInputChoice] = {}
+        self._updating_monthly_production = False
+
+        ttk.Label(monthly_frame, text="입력:", style="Panel.TLabel").grid(
+            row=0,
+            column=0,
+            sticky=tk.W,
+            padx=(0, 4),
+            pady=2,
+        )
+        self.monthly_input_combo = ttk.Combobox(
+            monthly_frame,
+            textvariable=self.monthly_selected_input_var,
+            state="readonly",
+            width=30,
+        )
+        self.monthly_input_combo.grid(
+            row=0,
+            column=1,
+            columnspan=3,
+            sticky="ew",
+            pady=2,
+        )
+
+        ttk.Label(monthly_frame, text="주 업무일:", style="Panel.TLabel").grid(
+            row=1,
+            column=0,
+            sticky=tk.W,
+            padx=(0, 4),
+            pady=2,
+        )
+        ttk.Entry(
+            monthly_frame,
+            textvariable=self.monthly_operating_days_var,
+            width=6,
+            validate="key",
+            validatecommand=(monthly_frame.register(is_limited_number_input), "%P", "7"),
+        ).grid(row=1, column=1, sticky="ew", pady=2)
+        ttk.Label(monthly_frame, text="시간/일:", style="Panel.TLabel").grid(
+            row=1,
+            column=2,
+            sticky=tk.W,
+            padx=(8, 4),
+            pady=2,
+        )
+        ttk.Entry(
+            monthly_frame,
+            textvariable=self.monthly_daily_hours_var,
+            width=8,
+            validate="key",
+            validatecommand=(monthly_frame.register(is_limited_number_input), "%P", "24"),
+        ).grid(row=1, column=3, sticky="ew", pady=2)
+
+        ttk.Label(monthly_frame, text="가동률%:", style="Panel.TLabel").grid(
+            row=2,
+            column=0,
+            sticky=tk.W,
+            padx=(0, 4),
+            pady=2,
+        )
+        ttk.Entry(
+            monthly_frame,
+            textvariable=self.monthly_operating_rate_var,
+            width=6,
+        ).grid(row=2, column=1, sticky="ew", pady=2)
+
+        self.monthly_status_label = tk.Label(
+            monthly_frame,
+            textvariable=self.monthly_status_var,
+            anchor=tk.W,
+            bg="#f8fafc",
+            fg="#475569",
+            font=("Arial", 10, "bold"),
+        )
+        self.monthly_status_label.grid(
+            row=3,
+            column=0,
+            columnspan=4,
+            sticky="ew",
+            pady=(6, 2),
+        )
+        ttk.Label(
+            monthly_frame,
+            textvariable=self.monthly_result_var,
+            justify=tk.LEFT,
+            anchor=tk.W,
+            style="Panel.TLabel",
+        ).grid(row=4, column=0, columnspan=4, sticky="ew")
+
+        for variable in (
+            self.monthly_operating_days_var,
+            self.monthly_daily_hours_var,
+            self.monthly_operating_rate_var,
+            self.monthly_selected_input_var,
+        ):
+            variable.trace_add(
+                "write",
+                lambda *_args: self.update_monthly_production_panel(),
+            )
+
         notebook = ttk.Notebook(self.frame)
         notebook.pack(fill=tk.BOTH, expand=True)
 
@@ -2455,6 +2772,7 @@ class ResultView:
         self.analysis_text.delete(1.0, tk.END)
         self.animation_summary_var.set("시뮬레이션 전")
         self.animation_selection_var.set("선택 묶음 없음")
+        self.update_monthly_production_panel()
 
     def display(self, result: SimulationResult) -> None:
         self.clear()
@@ -2497,8 +2815,10 @@ class ResultView:
         self._draw_timeline(result)
         self._write_analysis(result, bottleneck_name, bottleneck_reason, bottleneck_impact)
         self.update_animation_panel()
+        self.update_monthly_production_panel()
 
     def set_stale(self, is_stale: bool) -> None:
+        self.update_monthly_production_panel()
         if not is_stale:
             self.update_animation_panel()
             return
@@ -2559,6 +2879,140 @@ class ResultView:
             f"{selected.arrival_time:.1f}/{selected.start_time:.1f}/"
             f"{selected.completion_time:.1f}분"
         )
+
+    def update_monthly_production_panel(self) -> None:
+        if self._updating_monthly_production:
+            return
+
+        self._updating_monthly_production = True
+        try:
+            selected_choice = self._refresh_monthly_input_choices()
+            result = self.controller.last_result
+            state = self.controller.animation.state
+
+            if selected_choice is None:
+                self._set_monthly_production_message(
+                    status="계산 불가",
+                    message="원자재 투입 블록이 없어 kg/EA 변환 기준을 선택할 수 없습니다.",
+                    color="#b45309",
+                )
+                return
+            if result is None:
+                self._set_monthly_production_message(
+                    status="시뮬레이션 실행 필요",
+                    message="먼저 시뮬레이션을 실행하세요.",
+                    color="#475569",
+                )
+                return
+            if state.is_stale:
+                self._set_monthly_production_message(
+                    status="결과 오래됨",
+                    message="현재 주간 예상 생산량은 표시하지 않습니다. 시뮬레이션을 다시 실행하세요.",
+                    color="#b45309",
+                )
+                return
+            try:
+                selected_output_quantity = monthly_output_quantity_for_choice(
+                    selected_choice,
+                    result.final_output_quantity_by_source_block,
+                )
+                production_result = calculate_weekly_expected_production(
+                    output_quantity_ea=selected_output_quantity,
+                    elapsed_minutes=result.total_time,
+                    unit_weight_kg_per_ea=selected_choice.unit_weight_for_output(
+                        result.final_output_quantity_by_source_block,
+                    ),
+                    operating_days=self._monthly_value(
+                        self.monthly_operating_days_var,
+                        "주 업무일",
+                        maximum=7,
+                    ),
+                    daily_hours=self._monthly_value(
+                        self.monthly_daily_hours_var,
+                        "일 가동시간",
+                        maximum=24,
+                    ),
+                    operating_rate_percent=self._monthly_value(
+                        self.monthly_operating_rate_var,
+                        "가동률",
+                    ),
+                )
+            except ValueError as exc:
+                self._set_monthly_production_message(
+                    status="입력값 확인 필요",
+                    message=str(exc),
+                    color="#b45309",
+                )
+                return
+
+            self._set_monthly_production_message(
+                status="주간 예상 생산량",
+                message=(
+                    f"예상 {format_monthly_tons(production_result.weekly_expected_tons)}\n"
+                    f"기준: 예상 산출 "
+                    f"{format_compact_number(production_result.weekly_expected_output_ea)} EA / "
+                    f"최종 산출 {format_compact_number(production_result.output_quantity_ea)} EA\n"
+                    f"주 가동 {format_compact_number(production_result.available_minutes)}분 · "
+                    f"실적 {format_compact_number(realized_weekly_minutes_per_ea(production_result.available_minutes, result), 3)} 분/EA"
+                ),
+                color="#0369a1",
+            )
+        finally:
+            self._updating_monthly_production = False
+
+    def _refresh_monthly_input_choices(self) -> MonthlyInputChoice | None:
+        input_blocks = [
+            block for block in self.controller.scenario.blocks if block.type == "INPUT"
+        ]
+        self._monthly_input_choices = {
+            format_monthly_input_choice(choice): choice
+            for choice in build_monthly_input_choices(input_blocks)
+        }
+        choices = list(self._monthly_input_choices)
+        self.monthly_input_combo.configure(values=choices)
+
+        if not choices:
+            self.monthly_selected_input_var.set("")
+            return None
+
+        current_choice = self.monthly_selected_input_var.get()
+        if current_choice not in self._monthly_input_choices:
+            current_choice = choices[0]
+            self.monthly_selected_input_var.set(current_choice)
+
+        return self._monthly_input_choices[current_choice]
+
+    def _monthly_value(
+        self,
+        variable: tk.StringVar,
+        label: str,
+        maximum: float | None = None,
+    ) -> float:
+        raw_value = variable.get().strip()
+        if not raw_value:
+            raise ValueError(f"{label}을 입력해주세요.")
+        try:
+            value = float(raw_value)
+        except ValueError as exc:
+            raise ValueError(f"{label}은 숫자로 입력해주세요.") from exc
+        if value < 0:
+            raise ValueError(f"{label}은 0 이상으로 입력해주세요.")
+        if maximum is not None and value > maximum:
+            raise ValueError(
+                f"{label}은 {format_compact_number(maximum)} 이하로 입력해주세요."
+            )
+        return value
+
+    def _set_monthly_production_message(
+        self,
+        *,
+        status: str,
+        message: str,
+        color: str,
+    ) -> None:
+        self.monthly_status_var.set(status)
+        self.monthly_result_var.set(message)
+        self.monthly_status_label.configure(fg=color)
 
     def _format_product_quantities(self, quantities: dict[str, int]) -> str:
         if not quantities:
@@ -2763,6 +3217,10 @@ class ResultView:
             self.analysis_text.insert(tk.END, f"   • 원자재명: {block.material_name}\n")
             self.analysis_text.insert(tk.END, f"   • 투입 원자재 수: {block.input_quantity} EA\n")
             self.analysis_text.insert(tk.END, f"   • 투입 시간: {block.input_time:g}분\n")
+            self.analysis_text.insert(
+                tk.END,
+                f"   • 단위중량: {block.unit_weight_kg_per_ea:g} kg/EA\n",
+            )
             return
         if block and block.type == "HOIST":
             self.analysis_text.insert(tk.END, f"   • 1회 운반 수량: {block.transport_capacity} EA\n")

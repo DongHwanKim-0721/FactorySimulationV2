@@ -359,6 +359,7 @@ def test_same_product_and_material_inputs_are_not_merged():
         ("P1", "A", 7),
     ]
     assert len({bundle.bundle_id for bundle in joined}) == 2
+    assert result.final_output_quantity_by_source_block == {1: 5, 2: 7}
 
 
 def test_product_quantities_are_aggregated_for_inputs_and_sink_outputs():
@@ -381,6 +382,7 @@ def test_product_quantities_are_aggregated_for_inputs_and_sink_outputs():
     assert result.unique_product_count == 2
     assert result.input_quantity_by_product == {"P1": 10, "P2": 3}
     assert result.final_output_quantity_by_product == {"P1": 10, "P2": 3}
+    assert result.final_output_quantity_by_source_block == {1: 4, 2: 6, 3: 3}
 
 
 def test_product_label_does_not_affect_material_grouping():

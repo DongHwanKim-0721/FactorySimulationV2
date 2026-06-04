@@ -8,7 +8,7 @@ Use this checklist for manual tkinter verification after changes to `app.py`.
 
 - Confirm the palette order is: 원자재 투입, 작업대기, 전처리, 구부, 인발, 절단, 열처리, 교정, 후처리, 검사, 포장, 호이스트, Free Block.
 - Confirm old visible labels such as 적재, 절단기, 열처리기, 프레스 교정기, and 자동진직도 측정기 do not appear in the palette.
-- Add a 원자재 투입 block, edit product name, material name, input quantity, and input time.
+- Add a 원자재 투입 block, edit product name, material name, input quantity, input time, and kg/EA unit weight.
 - Confirm normal process and 호이스트 block settings do not show a product-name field.
 - Add new normal process blocks and confirm they default to 30 min/EA and 1EA concurrent quantity, except retained 절단 and 열처리 defaults.
 - Add a 호이스트 block, edit transport quantity and move time.
@@ -63,6 +63,26 @@ Use this checklist for manual tkinter verification after changes to `app.py`.
 - Branch/join bundle details keep product and material labels without merging same-label bundles.
 - Branch/join flow is shown from actual connections, not as a fake linear chain.
 
+## Weekly Expected Production
+
+- Before running simulation, confirm the weekly expected production panel asks the user to run simulation first when a raw material input block exists.
+- Confirm a scenario with no raw material input block shows that kg/EA ton conversion is unavailable.
+- Edit a raw material input block and confirm kg/EA unit weight must be greater than 0.
+- Run a simple INPUT -> process scenario with 10EA and 100 kg/EA.
+- Confirm the panel has work-day, daily-hour, and operating-rate controls.
+- Confirm daily hours cannot exceed 24 and weekly work days cannot exceed 7.
+- Confirm the panel shows expected weekly tons, expected output EA, selected final output EA, weekly operating minutes, and realized minutes/EA.
+- Confirm the panel shows 1 ton for 10EA at 100 kg/EA when weekly operating time is long enough.
+- Increase work days and daily hours and confirm the panel still does not exceed 1 ton for 10EA at 100 kg/EA.
+- Reduce weekly operating time below the simulation elapsed time and confirm expected weekly tons decreases.
+- Confirm the panel does not show target tons, feasible/infeasible status, surplus/shortage, weekly CAPA, or bottleneck throughput.
+- Create a multi-material input scenario and confirm the input selector starts with an all-raw-materials row, followed by one row per material name, with product/material names visible in each row.
+- Confirm the all-raw-materials row uses the total source output EA and output-weighted kg/EA value.
+- Change the selected material and confirm the weekly expected production answer updates using that material's combined source output EA and kg/EA value.
+- Confirm realized minutes/EA is weekly operating minutes divided by total final output EA, even when the selected material uses only part of the output.
+- Modify the scenario after simulation and confirm the weekly expected production panel marks the result stale and avoids presenting it as current.
+- Run an instant input-only scenario with zero elapsed time and confirm the panel still converts final output EA to tons.
+
 ## Animation
 
 - Run a simulation and confirm the central diagram shows playback controls above the canvas.
@@ -83,8 +103,9 @@ Use this checklist for manual tkinter verification after changes to `app.py`.
 ## Persistence
 
 - Save a scenario containing INPUT product/material labels, process, and HOIST blocks.
-- Load the saved scenario and confirm all new fields are preserved.
+- Load the saved scenario and confirm all new fields, including kg/EA unit weight, are preserved.
 - Load an older scenario JSON with no `product_name` and confirm INPUT uses default product name `제품`.
+- Load an older scenario JSON with no `unit_weight_kg_per_ea` and confirm INPUT uses default unit weight `1 kg/EA`.
 - Load an older scenario JSON using `STORAGE`, `STRAIGHTNESS`, and `PRESS`; confirm they become `WORK_WAITING`, `INSPECTION`, and `CORRECTION`.
 - Save that normalized legacy scenario again and confirm the JSON contains only the new type IDs.
 - Run simulation after load and compare the result with the pre-save run.

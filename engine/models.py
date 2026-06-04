@@ -15,11 +15,12 @@ class ProcessBlock:
     material_name: str = "원자재"
     input_quantity: int = 10
     input_time: float = 0.0
+    unit_weight_kg_per_ea: float = 1.0
     transport_capacity: int = 1
     transport_time: float = 1.0
     custom_name: str = ""
-    width: int = 150
-    height: int = 80
+    width: int = 132
+    height: int = 70
 
 
 @dataclass
@@ -95,6 +96,7 @@ class Scenario:
         material_name: str = "원자재",
         input_quantity: int = 10,
         input_time: float = 0.0,
+        unit_weight_kg_per_ea: float = 1.0,
         transport_capacity: int = 1,
         transport_time: float = 1.0,
         custom_name: str = "",
@@ -111,6 +113,7 @@ class Scenario:
             material_name=material_name,
             input_quantity=input_quantity,
             input_time=input_time,
+            unit_weight_kg_per_ea=unit_weight_kg_per_ea,
             transport_capacity=transport_capacity,
             transport_time=transport_time,
             custom_name=custom_name,

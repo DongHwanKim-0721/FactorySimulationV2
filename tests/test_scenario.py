@@ -104,6 +104,7 @@ def test_save_load_roundtrip_then_simulate_bundle_scenario():
         material_name="A",
         input_quantity=10,
         input_time=5,
+        unit_weight_kg_per_ea=2.5,
     )
     scenario.add_block(
         "CUTTING",
@@ -131,6 +132,7 @@ def test_save_load_roundtrip_then_simulate_bundle_scenario():
 
         assert loaded == scenario
         assert loaded.blocks[0].product_name == "P1"
+        assert loaded.blocks[0].unit_weight_kg_per_ea == 2.5
         assert result.total_time == 24
         assert result.total_input_quantity == 10
         assert result.final_output_quantity == 10
@@ -202,6 +204,7 @@ def test_load_legacy_scenario_defaults_missing_product_name():
         loaded = load(path)
 
         assert loaded.blocks[0].product_name == "제품"
+        assert loaded.blocks[0].unit_weight_kg_per_ea == 1.0
         assert loaded.operators == []
         assert loaded.operator_assignments == []
     finally:
@@ -315,3 +318,16 @@ def test_save_normalizes_legacy_block_types_from_memory():
         ]
     finally:
         path.unlink(missing_ok=True)
+
+
+def test_add_input_block_accepts_unit_weight():
+    scenario = Scenario()
+
+    block = scenario.add_block(
+        "INPUT",
+        x=0,
+        y=0,
+        unit_weight_kg_per_ea=3.25,
+    )
+
+    assert block.unit_weight_kg_per_ea == 3.25

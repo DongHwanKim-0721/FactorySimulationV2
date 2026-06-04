@@ -54,6 +54,7 @@ class SimulationResult:
     final_output_quantity: int
     input_quantity_by_product: dict[str, int]
     final_output_quantity_by_product: dict[str, int]
+    final_output_quantity_by_source_block: dict[int, int]
     unique_product_count: int
     bottleneck_id: int | None
     bottleneck_throughput: float
@@ -171,6 +172,10 @@ def _build_simulation_result(
         timeline,
         connections,
     )
+    final_output_quantity_by_source_block = _final_output_quantity_by_source_block(
+        timeline,
+        connections,
+    )
     product_names = set(input_quantity_by_product) | set(final_output_quantity_by_product)
 
     return SimulationResult(
@@ -182,6 +187,7 @@ def _build_simulation_result(
         final_output_quantity=_final_output_quantity(timeline, connections),
         input_quantity_by_product=input_quantity_by_product,
         final_output_quantity_by_product=final_output_quantity_by_product,
+        final_output_quantity_by_source_block=final_output_quantity_by_source_block,
         unique_product_count=len(product_names),
         bottleneck_id=bottleneck_id,
         bottleneck_throughput=bottleneck_throughput,
@@ -465,6 +471,8 @@ def _validate_block_fields(blocks: list[ProcessBlock]) -> None:
                 raise ValueError("투입 원자재 수(EA)는 0 이상이어야 합니다.")
             if block.input_time < 0:
                 raise ValueError("투입 시간(분)은 0 이상이어야 합니다.")
+            if block.unit_weight_kg_per_ea <= 0:
+                raise ValueError("단위중량(kg/EA)은 0보다 커야 합니다.")
         elif _is_hoist(block):
             if block.transport_capacity <= 0:
                 raise ValueError("1회 운반 수량(EA)은 1 이상이어야 합니다.")
@@ -932,6 +940,22 @@ def _final_output_quantity_by_product(
         for bundle in item.bundles:
             quantities[bundle.product_name] = (
                 quantities.get(bundle.product_name, 0) + bundle.quantity
+            )
+    return quantities
+
+
+def _final_output_quantity_by_source_block(
+    timeline: list[BlockResult],
+    connections: list[ProcessConnection],
+) -> dict[int, int]:
+    parent_ids = {connection.from_block for connection in connections}
+    quantities: dict[int, int] = {}
+    for item in timeline:
+        if item.block_id in parent_ids:
+            continue
+        for bundle in item.bundles:
+            quantities[bundle.source_block_id] = (
+                quantities.get(bundle.source_block_id, 0) + bundle.quantity
             )
     return quantities
 
