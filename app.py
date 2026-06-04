@@ -14,6 +14,14 @@ from engine.models import (
     UNIVERSAL_OPERATOR_BLOCK_TYPES,
     operator_can_handle_block,
 )
+from engine.operator_library import (
+    OperatorTemplate,
+    default_operator_library_path,
+    delete_operator_template,
+    load_operator_templates,
+    save_operator_templates,
+    upsert_operator_template,
+)
 from engine.scenario_io import load as load_scenario_file
 from engine.scenario_io import save as save_scenario_file
 from engine.simulation import BlockResult, BundleRecord, SimulationResult, simulate
@@ -79,6 +87,14 @@ def format_flow_diagram(
         )
 
     return "\n".join(label(block_id) for block_id in process_flow)
+
+
+def format_qualification_summary(qualified_process_types: set[str]) -> str:
+    return f"자격 {len(qualified_process_types)}개"
+
+
+def format_operator_qualification_summary(operator: Operator) -> str:
+    return format_qualification_summary(operator.qualified_process_types)
 
 
 TOKEN_STATE_LABELS = {
@@ -364,6 +380,8 @@ class App:
         self._configure_style(style)
 
         self.scenario = Scenario()
+        self.operator_library_path = default_operator_library_path()
+        self.operator_templates = self.load_operator_library()
         self.last_result: SimulationResult | None = None
         self.animation = AnimationController()
         self._animation_after_id: str | None = None
@@ -484,6 +502,91 @@ class App:
 
     def run(self) -> None:
         self.root.mainloop()
+
+    def load_operator_library(self) -> list[OperatorTemplate]:
+        try:
+            return load_operator_templates(self.operator_library_path)
+        except (OSError, KeyError, TypeError, ValueError) as exc:
+            messagebox.showwarning(
+                "작업자 보관함 오류",
+                f"작업자 보관함을 불러올 수 없습니다:\n{exc}",
+            )
+            return []
+
+    def save_operator_library(self) -> bool:
+        try:
+            save_operator_templates(
+                self.operator_templates,
+                self.operator_library_path,
+            )
+        except OSError as exc:
+            messagebox.showerror(
+                "작업자 보관함 오류",
+                f"작업자 보관함 저장 중 오류가 발생했습니다:\n{exc}",
+            )
+            return False
+        return True
+
+    def save_operator_to_library(self, operator_id: int) -> None:
+        operator = self.find_operator(operator_id)
+        if operator is None:
+            return
+
+        template, created = upsert_operator_template(
+            self.operator_templates,
+            operator.name,
+            operator.qualified_process_types,
+        )
+        if not self.save_operator_library():
+            return
+
+        self.palette_view.refresh_operator_templates()
+        action = "저장" if created else "갱신"
+        self.status_var.set(f"자주 쓰는 작업자 {action}: {template.name}")
+
+    def load_operator_template(self, template_id: int) -> None:
+        template = self.find_operator_template(template_id)
+        if template is None:
+            return
+
+        operator = self.scenario.add_operator(
+            name=template.name,
+            x=320,
+            y=140 + len(self.scenario.operators) * 90,
+            qualified_process_types=set(template.qualified_process_types),
+        )
+        self.mark_structure_changed(
+            "작업자가 추가되어 시뮬레이션 재실행이 필요합니다."
+        )
+        self.canvas_view.redraw()
+        self.status_var.set(f"작업자 불러오기 완료: {operator.name}")
+
+    def delete_operator_template(self, template_id: int) -> None:
+        template = self.find_operator_template(template_id)
+        if template is None:
+            return
+        if not messagebox.askyesno(
+            "자주 쓰는 작업자 삭제",
+            f"{template.name} 작업자 템플릿을 삭제하시겠습니까?",
+        ):
+            return
+
+        deleted = delete_operator_template(self.operator_templates, template_id)
+        if deleted is None or not self.save_operator_library():
+            return
+
+        self.palette_view.refresh_operator_templates()
+        self.status_var.set(f"자주 쓰는 작업자 삭제됨: {deleted.name}")
+
+    def find_operator_template(self, template_id: int) -> OperatorTemplate | None:
+        return next(
+            (
+                template
+                for template in self.operator_templates
+                if template.id == template_id
+            ),
+            None,
+        )
 
     def add_block(self, block_type: str) -> None:
         block_type_info = BLOCK_TYPES[block_type]
@@ -1395,6 +1498,68 @@ class PaletteView:
             text="작업자 추가",
             command=self.controller.add_operator,
         ).pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(
+            operator_body,
+            text="자주 쓰는 작업자",
+            style="Panel.TLabel",
+            font=("Arial", 10, "bold"),
+        ).pack(anchor=tk.W, pady=(2, 6))
+        self.operator_list_frame = ttk.Frame(operator_body, style="Panel.TFrame")
+        self.operator_list_frame.pack(fill=tk.BOTH, expand=True)
+        self.refresh_operator_templates()
+
+    def refresh_operator_templates(self) -> None:
+        if not hasattr(self, "operator_list_frame"):
+            return
+
+        for child in self.operator_list_frame.winfo_children():
+            child.destroy()
+
+        if not self.controller.operator_templates:
+            ttk.Label(
+                self.operator_list_frame,
+                text="저장된 작업자 템플릿이 없습니다.",
+                style="Panel.TLabel",
+                wraplength=self.LIST_MAX_WIDTH - 12,
+            ).pack(anchor=tk.W, pady=4)
+            return
+
+        for template in self.controller.operator_templates:
+            row = ttk.Frame(
+                self.operator_list_frame,
+                padding=(8, 6),
+                style="Panel.TFrame",
+            )
+            row.pack(fill=tk.X, pady=4)
+            ttk.Label(
+                row,
+                text=template.name,
+                style="Panel.TLabel",
+                font=("Arial", 9, "bold"),
+                wraplength=self.LIST_MAX_WIDTH - 20,
+            ).pack(anchor=tk.W)
+            ttk.Label(
+                row,
+                text=format_qualification_summary(template.qualified_process_types),
+                style="Panel.TLabel",
+            ).pack(anchor=tk.W, pady=(1, 4))
+
+            actions = ttk.Frame(row, style="Panel.TFrame")
+            actions.pack(fill=tk.X)
+            ttk.Button(
+                actions,
+                text="불러오기",
+                command=lambda template_id=template.id: self.controller.load_operator_template(
+                    template_id
+                ),
+            ).pack(side=tk.LEFT, padx=(0, 4))
+            ttk.Button(
+                actions,
+                text="삭제",
+                command=lambda template_id=template.id: self.controller.delete_operator_template(
+                    template_id
+                ),
+            ).pack(side=tk.LEFT)
 
     @classmethod
     def _bounded_list_width(cls, container_width: int, scrollbar_width: int) -> int:
@@ -1696,7 +1861,7 @@ class CanvasView:
         self.canvas.create_text(
             operator.x + 76,
             operator.y + 44,
-            text=f"{len(operator.qualified_process_types)} types",
+            text=format_operator_qualification_summary(operator),
             font=("Arial", 8),
             fill="#475569",
             tags=f"operator_{operator.id}",
@@ -2098,6 +2263,10 @@ class CanvasView:
             menu.add_command(
                 label="설정",
                 command=lambda: self.controller.edit_operator(operator_id),
+            )
+            menu.add_command(
+                label="자주 쓰는 작업자로 저장",
+                command=lambda: self.controller.save_operator_to_library(operator_id),
             )
             menu.add_separator()
             menu.add_command(

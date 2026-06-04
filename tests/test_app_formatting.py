@@ -1,5 +1,11 @@
-from app import BLOCK_TYPES, CanvasView, PaletteView, format_flow_diagram
-from engine.models import ProcessBlock, ProcessConnection
+from app import (
+    BLOCK_TYPES,
+    CanvasView,
+    PaletteView,
+    format_flow_diagram,
+    format_operator_qualification_summary,
+)
+from engine.models import Operator, ProcessBlock, ProcessConnection
 
 
 def test_branch_join_flow_diagram_uses_actual_connections():
@@ -33,6 +39,26 @@ def test_flow_diagram_lists_independent_blocks_without_fake_edges():
     )
 
     assert diagram.splitlines() == ["B1", "B2"]
+
+
+def test_operator_qualification_summary_counts_qualified_types():
+    one_type = Operator(
+        id=1,
+        name="A",
+        x=0,
+        y=0,
+        qualified_process_types={"CUTTING"},
+    )
+    two_types = Operator(
+        id=2,
+        name="B",
+        x=0,
+        y=0,
+        qualified_process_types={"CUTTING", "HEAT"},
+    )
+
+    assert format_operator_qualification_summary(one_type) == "자격 1개"
+    assert format_operator_qualification_summary(two_types) == "자격 2개"
 
 
 def test_block_taxonomy_uses_approved_order_and_labels():
