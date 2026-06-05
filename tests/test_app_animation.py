@@ -1,4 +1,13 @@
-from app import AnimationController, BundleTokenState, CanvasView
+from types import SimpleNamespace
+
+from app import (
+    AnimationController,
+    BundleTokenState,
+    CanvasView,
+    PLAYBACK_PAUSE_LABEL,
+    PLAYBACK_PLAY_LABEL,
+    PLAYBACK_RESET_LABEL,
+)
 from engine.models import ProcessBlock, ProcessConnection
 from engine.simulation import simulate
 
@@ -149,6 +158,90 @@ def test_canvas_token_drawing_does_not_depend_on_connection_delete_coordinates()
     view._draw_token(token, 10, 20, selected_id=None)
 
     assert [call[0] for call in view.canvas.calls] == ["rectangle", "text"]
+
+
+def test_canvas_redraw_preserves_scroll_position():
+    class FakeCanvas:
+        def __init__(self):
+            self.calls = []
+
+        def xview(self):
+            return (0.31, 0.51)
+
+        def yview(self):
+            return (0.27, 0.47)
+
+        def xview_moveto(self, value):
+            self.calls.append(("xview_moveto", value))
+
+        def yview_moveto(self, value):
+            self.calls.append(("yview_moveto", value))
+
+        def delete(self, *_args):
+            pass
+
+        def create_line(self, *_args, **_kwargs):
+            pass
+
+    class FakeController:
+        def __init__(self):
+            self.animation = AnimationController()
+            self.scenario = SimpleNamespace(
+                connections=[],
+                operator_assignments=[],
+                blocks=[],
+                operators=[],
+            )
+
+        def animation_display_tokens(self):
+            return []
+
+    view = CanvasView.__new__(CanvasView)
+    view.canvas = FakeCanvas()
+    view.controller = FakeController()
+
+    view.redraw()
+
+    assert ("xview_moveto", 0.31) in view.canvas.calls
+    assert ("yview_moveto", 0.27) in view.canvas.calls
+
+
+def test_playback_controls_use_action_labels_with_icons():
+    class FakeWidget:
+        def __init__(self):
+            self.options = {}
+
+        def configure(self, **kwargs):
+            self.options.update(kwargs)
+
+    class FakeVar:
+        def __init__(self):
+            self.value = None
+
+        def set(self, value):
+            self.value = value
+
+    view = CanvasView.__new__(CanvasView)
+    view.time_scale = FakeWidget()
+    view.time_scale_var = FakeVar()
+    view.play_button = FakeWidget()
+    view.time_var = FakeVar()
+    view.state_var = FakeVar()
+    view.controller = SimpleNamespace(
+        last_result=SimpleNamespace(total_time=10.0),
+        animation=AnimationController(),
+    )
+
+    view.update_playback_controls()
+
+    assert view.play_button.options["text"] == PLAYBACK_PLAY_LABEL
+    assert PLAYBACK_RESET_LABEL == "↺ 시점 초기화"
+
+    view.controller.animation.state.is_playing = True
+
+    view.update_playback_controls()
+
+    assert view.play_button.options["text"] == PLAYBACK_PAUSE_LABEL
 
 
 def test_processing_token_position_stays_outside_block_bounds():

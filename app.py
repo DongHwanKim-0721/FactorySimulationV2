@@ -289,6 +289,10 @@ PRODUCT_TOKEN_COLORS = [
     "#4d7c0f",
 ]
 
+PLAYBACK_PLAY_LABEL = "▶ 재생"
+PLAYBACK_PAUSE_LABEL = "⏸ 일시정지"
+PLAYBACK_RESET_LABEL = "↺ 시점 초기화"
+
 
 @dataclass
 class PlaybackState:
@@ -1989,15 +1993,15 @@ class CanvasView:
 
         self.play_button = ttk.Button(
             self.playback_frame,
-            text="재생",
-            width=8,
+            text=PLAYBACK_PLAY_LABEL,
+            width=10,
             command=self.controller.toggle_playback,
         )
         self.play_button.grid(row=0, column=0, padx=(0, 4))
         ttk.Button(
             self.playback_frame,
-            text="정지",
-            width=8,
+            text=PLAYBACK_RESET_LABEL,
+            width=13,
             command=self.controller.stop_playback,
         ).grid(row=0, column=1, padx=(0, 8))
 
@@ -2128,6 +2132,8 @@ class CanvasView:
         add_button.pack(side=tk.LEFT)
 
     def redraw(self) -> None:
+        xview = self.canvas.xview()
+        yview = self.canvas.yview()
         self.canvas.delete("all")
         self.current_tokens = self.controller.animation_display_tokens()
         self.draw_grid()
@@ -2140,6 +2146,8 @@ class CanvasView:
         for operator in self.controller.scenario.operators:
             self.draw_operator(operator)
         self.draw_animation_tokens()
+        self.canvas.xview_moveto(xview[0])
+        self.canvas.yview_moveto(yview[0])
 
     def draw_block(self, block: ProcessBlock) -> None:
         block_type = BLOCK_TYPES[block.type]
@@ -2795,7 +2803,9 @@ class CanvasView:
         self.time_scale_var.set(state.current_time)
         self._updating_controls = False
 
-        self.play_button.configure(text="일시정지" if state.is_playing else "재생")
+        self.play_button.configure(
+            text=PLAYBACK_PAUSE_LABEL if state.is_playing else PLAYBACK_PLAY_LABEL
+        )
         self.time_var.set(f"{state.current_time:.1f} / {total_time:.1f}분")
         if state.is_stale:
             self.state_var.set("재실행 필요")
