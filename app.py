@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Callable
 
 from engine.models import (
@@ -23,8 +23,12 @@ from engine.operator_library import (
     save_operator_templates,
     upsert_operator_template,
 )
-from engine.scenario_io import load as load_scenario_file
-from engine.scenario_io import save as save_scenario_file
+from engine.scenario_io import (
+    ScenarioDocument,
+    ScenarioSheet,
+    load_document,
+    save_document,
+)
 from engine.simulation import BlockResult, BundleRecord, SimulationResult, simulate
 
 
@@ -537,6 +541,14 @@ class AnimationController:
         return max(0.0, min(1.0, (current_time - start_time) / (completion_time - start_time)))
 
 
+@dataclass
+class SheetState:
+    name: str
+    scenario: Scenario = field(default_factory=Scenario)
+    last_result: SimulationResult | None = None
+    animation: AnimationController = field(default_factory=AnimationController)
+
+
 class App:
     def __init__(self) -> None:
         self.root = tk.Tk()
@@ -549,11 +561,13 @@ class App:
         style.theme_use("clam")
         self._configure_style(style)
 
-        self.scenario = Scenario()
+        self.sheets: list[SheetState] = [SheetState(name="Sheet1")]
+        self.active_sheet_index = 0
+        self.scenario = self.sheets[0].scenario
         self.operator_library_path = default_operator_library_path()
         self.operator_templates = self.load_operator_library()
-        self.last_result: SimulationResult | None = None
-        self.animation = AnimationController()
+        self.last_result = self.sheets[0].last_result
+        self.animation = self.sheets[0].animation
         self._animation_after_id: str | None = None
         self.connection_start_kind: str | None = None
         self.connection_start_id: int | None = None
@@ -672,6 +686,194 @@ class App:
 
     def run(self) -> None:
         self.root.mainloop()
+
+    @property
+    def active_sheet(self) -> SheetState:
+        return self.sheets[self.active_sheet_index]
+
+    def sheet_names(self) -> list[str]:
+        return [sheet.name for sheet in self.sheets]
+
+    def _bind_active_sheet(self) -> None:
+        sheet = self.active_sheet
+        self.scenario = sheet.scenario
+        self.last_result = sheet.last_result
+        self.animation = sheet.animation
+        self.animation.set_connections(self.scenario.connections)
+
+    def _set_last_result(self, result: SimulationResult | None) -> None:
+        self.active_sheet.last_result = result
+        self.last_result = result
+
+    def _refresh_sheet_tabs(self) -> None:
+        if hasattr(self, "canvas_view"):
+            self.canvas_view.refresh_sheet_tabs()
+
+    def refresh_active_sheet_views(self) -> None:
+        self._bind_active_sheet()
+        self.animation.state.is_playing = False
+        self.connection_start_kind = None
+        self.connection_start_id = None
+        self.stop_animation_timer()
+        self._refresh_sheet_tabs()
+
+        if hasattr(self, "canvas_view"):
+            self.canvas_view.redraw()
+            self.canvas_view.update_playback_controls()
+        if hasattr(self, "result_view"):
+            if self.last_result is None:
+                self.result_view.clear()
+            else:
+                self.result_view.display(self.last_result)
+            self.result_view.set_stale(self.animation.state.is_stale)
+
+    def switch_sheet(self, index: int) -> None:
+        if index < 0 or index >= len(self.sheets) or index == self.active_sheet_index:
+            return
+        self.active_sheet_index = index
+        self.refresh_active_sheet_views()
+        self.status_var.set(f"시트 전환: {self.active_sheet.name}")
+
+    def add_sheet(self) -> None:
+        name = self._next_sheet_name()
+        self.sheets.append(SheetState(name=name))
+        self.active_sheet_index = len(self.sheets) - 1
+        self.refresh_active_sheet_views()
+        self.status_var.set(f"새 시트 추가: {name}")
+
+    def rename_sheet(self, index: int) -> None:
+        if index < 0 or index >= len(self.sheets):
+            return
+        name = self._prompt_sheet_name(
+            title="시트 이름 변경",
+            prompt="새 시트 이름을 입력하세요.",
+            initial_value=self.sheets[index].name,
+            ignore_index=index,
+        )
+        if name is None:
+            return
+        self.sheets[index].name = name
+        self._refresh_sheet_tabs()
+        self.status_var.set(f"시트 이름 변경: {name}")
+
+    def show_sheet_menu(self, index: int, event: tk.Event) -> None:
+        if index < 0 or index >= len(self.sheets):
+            return
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="이름 변경", command=lambda: self.rename_sheet(index))
+        menu.add_command(
+            label="삭제",
+            command=lambda: self.delete_sheet(index),
+            state=tk.NORMAL if len(self.sheets) > 1 else tk.DISABLED,
+        )
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def delete_sheet(self, index: int) -> None:
+        if len(self.sheets) <= 1:
+            messagebox.showwarning("시트 삭제", "마지막 시트는 삭제할 수 없습니다.")
+            return
+        if index < 0 or index >= len(self.sheets):
+            return
+
+        sheet_name = self.sheets[index].name
+        if not messagebox.askyesno(
+            "시트 삭제",
+            f"'{sheet_name}' 시트와 모든 공정 데이터를 삭제하시겠습니까?",
+        ):
+            return
+
+        del self.sheets[index]
+        if self.active_sheet_index >= len(self.sheets):
+            self.active_sheet_index = len(self.sheets) - 1
+        elif index < self.active_sheet_index:
+            self.active_sheet_index -= 1
+        self.refresh_active_sheet_views()
+        self.status_var.set(f"시트 삭제: {sheet_name}")
+
+    def _prompt_sheet_name(
+        self,
+        title: str,
+        prompt: str,
+        initial_value: str,
+        ignore_index: int | None = None,
+    ) -> str | None:
+        while True:
+            value = simpledialog.askstring(
+                title,
+                prompt,
+                initialvalue=initial_value,
+                parent=self.root,
+            )
+            if value is None:
+                return None
+            name = value.strip()
+            if not name:
+                messagebox.showwarning("시트 이름", "시트 이름은 비워둘 수 없습니다.")
+                continue
+            if self._sheet_name_exists(name, ignore_index=ignore_index):
+                messagebox.showwarning("시트 이름", "이미 존재하는 시트 이름입니다.")
+                continue
+            return name
+
+    def _sheet_name_exists(
+        self,
+        name: str,
+        ignore_index: int | None = None,
+    ) -> bool:
+        return any(
+            sheet.name == name and index != ignore_index
+            for index, sheet in enumerate(self.sheets)
+        )
+
+    def _next_sheet_name(self) -> str:
+        used_names = set(self.sheet_names())
+        index = 1
+        while f"Sheet{index}" in used_names:
+            index += 1
+        return f"Sheet{index}"
+
+    def _build_scenario_document(self) -> ScenarioDocument:
+        return ScenarioDocument(
+            sheets=[
+                ScenarioSheet(name=sheet.name, scenario=sheet.scenario)
+                for sheet in self.sheets
+            ],
+            active_sheet_index=self.active_sheet_index,
+        )
+
+    def _load_scenario_document(self, document: ScenarioDocument) -> None:
+        used_names: set[str] = set()
+        self.sheets = []
+        for index, sheet in enumerate(document.sheets):
+            name = self._unique_loaded_sheet_name(sheet.name, index, used_names)
+            self.sheets.append(SheetState(name=name, scenario=sheet.scenario))
+        if not self.sheets:
+            self.sheets = [SheetState(name="Sheet1")]
+        self.active_sheet_index = max(
+            0,
+            min(document.active_sheet_index, len(self.sheets) - 1),
+        )
+        for sheet in self.sheets:
+            sheet.animation.state.is_stale = True
+        self.refresh_active_sheet_views()
+
+    @staticmethod
+    def _unique_loaded_sheet_name(
+        raw_name: str,
+        index: int,
+        used_names: set[str],
+    ) -> str:
+        base_name = str(raw_name).strip() or f"Sheet{index + 1}"
+        name = base_name
+        suffix = 2
+        while name in used_names:
+            name = f"{base_name} {suffix}"
+            suffix += 1
+        used_names.add(name)
+        return name
 
     def load_operator_library(self) -> list[OperatorTemplate]:
         try:
@@ -1326,7 +1528,7 @@ class App:
             messagebox.showerror("오류", "시뮬레이션 결과가 없습니다.")
             return
 
-        self.last_result = result
+        self._set_last_result(result)
         self.animation.set_connections(self.scenario.connections)
         self.animation.set_result(result)
         self.result_view.display(result)
@@ -1343,7 +1545,7 @@ class App:
             return
 
         try:
-            save_scenario_file(self.scenario, filename)
+            save_document(self._build_scenario_document(), filename)
         except OSError as exc:
             messagebox.showerror("저장 오류", f"저장 중 오류가 발생했습니다:\n{exc}")
             return
@@ -1360,29 +1562,26 @@ class App:
             return
 
         try:
-            self.scenario = load_scenario_file(filename)
+            document = load_document(filename)
         except (OSError, KeyError, TypeError, ValueError) as exc:
             messagebox.showerror("불러오기 오류", f"불러오기 중 오류가 발생했습니다:\n{exc}")
             return
 
-        self.last_result = None
+        self._load_scenario_document(document)
         self.connection_start_kind = None
         self.connection_start_id = None
-        self.animation.clear()
-        self.canvas_view.redraw()
-        self.result_view.clear()
         messagebox.showinfo("불러오기 완료", "시나리오가 불러와졌습니다.")
         self.mark_structure_changed("불러온 시나리오는 시뮬레이션 실행이 필요합니다.")
         self.status_var.set(f"시나리오 불러옴: {filename}")
 
     def clear_all(self) -> None:
-        if not messagebox.askyesno("초기화 확인", "모든 블록과 연결을 삭제하시겠습니까?"):
+        if not messagebox.askyesno("시트 초기화", "현재 시트의 블록과 연결을 모두 삭제하시겠습니까?"):
             return
-        self.scenario = Scenario()
-        self.last_result = None
+        sheet_name = self.active_sheet.name
+        self.sheets[self.active_sheet_index] = SheetState(name=sheet_name)
+        self._bind_active_sheet()
         self.connection_start_kind = None
         self.connection_start_id = None
-        self.animation.clear()
         self.canvas_view.redraw()
         self.result_view.clear()
         self.mark_structure_changed("초기화되어 시뮬레이션 실행이 필요합니다.")
@@ -1781,8 +1980,11 @@ class CanvasView:
         )
         self.frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=10)
 
+        self.sheet_tab_frame = ttk.Frame(self.frame, style="Panel.TFrame")
+        self.sheet_tab_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 6))
+
         self.playback_frame = ttk.Frame(self.frame, style="Playback.TFrame")
-        self.playback_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        self.playback_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 8))
         self.playback_frame.grid_columnconfigure(4, weight=1)
 
         self.play_button = ttk.Button(
@@ -1854,10 +2056,10 @@ class CanvasView:
             scrollregion=(0, 0, 2000, 2000),
         )
 
-        self.canvas.grid(row=1, column=0, sticky="nsew")
-        h_scroll.grid(row=2, column=0, sticky="ew")
-        v_scroll.grid(row=1, column=1, sticky="ns")
-        self.frame.grid_rowconfigure(1, weight=1)
+        self.canvas.grid(row=2, column=0, sticky="nsew")
+        h_scroll.grid(row=3, column=0, sticky="ew")
+        v_scroll.grid(row=2, column=1, sticky="ns")
+        self.frame.grid_rowconfigure(2, weight=1)
         self.frame.grid_columnconfigure(0, weight=1)
 
         self.canvas.bind("<Button-1>", self.on_click)
@@ -1868,6 +2070,62 @@ class CanvasView:
         self.canvas.bind("<MouseWheel>", self.on_mousewheel)
         self.canvas.bind("<Button-4>", self.on_mousewheel)
         self.canvas.bind("<Button-5>", self.on_mousewheel)
+        self.refresh_sheet_tabs()
+
+    def refresh_sheet_tabs(self) -> None:
+        for child in self.sheet_tab_frame.winfo_children():
+            child.destroy()
+
+        for index, name in enumerate(self.controller.sheet_names()):
+            is_active = index == self.controller.active_sheet_index
+            button = tk.Button(
+                self.sheet_tab_frame,
+                text=name,
+                bg="#ffffff" if is_active else "#e2e8f0",
+                fg="#0f172a" if is_active else "#475569",
+                activebackground="#ffffff",
+                activeforeground="#0f172a",
+                relief=tk.SOLID if is_active else tk.FLAT,
+                bd=1,
+                padx=14,
+                pady=4,
+                font=("Arial", 9, "bold" if is_active else "normal"),
+                cursor="hand2",
+                command=lambda sheet_index=index: self.controller.switch_sheet(
+                    sheet_index
+                ),
+            )
+            button.pack(side=tk.LEFT, padx=(0, 3))
+            button.bind(
+                "<Double-Button-1>",
+                lambda _event, sheet_index=index: self.controller.rename_sheet(
+                    sheet_index
+                ),
+            )
+            button.bind(
+                "<Button-3>",
+                lambda event, sheet_index=index: self.controller.show_sheet_menu(
+                    sheet_index,
+                    event,
+                ),
+            )
+
+        add_button = tk.Button(
+            self.sheet_tab_frame,
+            text="+",
+            bg="#f8fafc",
+            fg="#0f172a",
+            activebackground="#e2e8f0",
+            activeforeground="#0f172a",
+            relief=tk.FLAT,
+            bd=1,
+            padx=10,
+            pady=4,
+            font=("Arial", 10, "bold"),
+            cursor="hand2",
+            command=self.controller.add_sheet,
+        )
+        add_button.pack(side=tk.LEFT)
 
     def redraw(self) -> None:
         self.canvas.delete("all")

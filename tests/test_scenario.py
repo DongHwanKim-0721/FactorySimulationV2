@@ -3,7 +3,14 @@ import pytest
 from pathlib import Path
 
 from engine.models import Scenario
-from engine.scenario_io import load, save
+from engine.scenario_io import (
+    ScenarioDocument,
+    ScenarioSheet,
+    load,
+    load_document,
+    save,
+    save_document,
+)
 from engine.simulation import simulate
 
 
@@ -172,6 +179,94 @@ def test_save_load_roundtrip_preserves_operators_and_assignments():
         assert loaded.operators[0].qualified_process_types == {"CUTTING", "HEAT"}
         assert loaded.operator_assignments[0].operator_id == operator.id
         assert loaded.operator_assignments[0].block_id == 2
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def test_save_load_document_roundtrip_preserves_multiple_sheets():
+    first = Scenario()
+    first.add_block(
+        "INPUT",
+        x=0,
+        y=0,
+        product_name="P1",
+        material_name="A",
+        input_quantity=10,
+    )
+
+    second = Scenario()
+    second.add_block(
+        "INPUT",
+        x=10,
+        y=20,
+        product_name="P2",
+        material_name="B",
+        input_quantity=5,
+    )
+    second.add_block("CUTTING", x=220, y=20, process_time_per_ea=2)
+    second.add_connection(1, 2)
+
+    path = Path("tests/.tmp_workbook.json")
+    try:
+        save_document(
+            ScenarioDocument(
+                sheets=[
+                    ScenarioSheet(name="Line A", scenario=first),
+                    ScenarioSheet(name="Line B", scenario=second),
+                ],
+                active_sheet_index=1,
+            ),
+            path,
+        )
+
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        loaded = load_document(path)
+
+        assert saved["format"] == "FactorySimulationWorkbook"
+        assert "last_result" not in saved["sheets"][0]
+        assert loaded.active_sheet_index == 1
+        assert [sheet.name for sheet in loaded.sheets] == ["Line A", "Line B"]
+        assert loaded.sheets[0].scenario.blocks[0].product_name == "P1"
+        assert loaded.sheets[1].scenario.connections[0].from_block == 1
+        assert simulate(
+            loaded.sheets[1].scenario.blocks,
+            loaded.sheets[1].scenario.connections,
+        ).final_output_quantity == 5
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def test_load_document_wraps_legacy_single_scenario_as_sheet1():
+    path = Path("tests/.tmp_legacy_workbook.json")
+    path.write_text(
+        """
+{
+  "blocks": [
+    {
+      "id": 1,
+      "type": "INPUT",
+      "x": 0,
+      "y": 0,
+      "process_time_per_ea": 30.0,
+      "concurrent_capacity": 1,
+      "product_name": "P1",
+      "material_name": "A",
+      "input_quantity": 7,
+      "input_time": 0
+    }
+  ],
+  "connections": []
+}
+""",
+        encoding="utf-8",
+    )
+
+    try:
+        loaded = load_document(path)
+
+        assert loaded.active_sheet_index == 0
+        assert [sheet.name for sheet in loaded.sheets] == ["Sheet1"]
+        assert loaded.sheets[0].scenario.blocks[0].input_quantity == 7
     finally:
         path.unlink(missing_ok=True)
 
