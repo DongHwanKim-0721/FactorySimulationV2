@@ -163,8 +163,133 @@ def format_compact_number(value: float, digits: int = 2) -> str:
     return "0" if text == "-0" else text
 
 
+def format_hours(value: float, digits: int = 2) -> str:
+    return f"{format_compact_number(value, digits)} hr"
+
+
 def format_monthly_tons(value: float) -> str:
     return f"{format_compact_number(value)} ton"
+
+
+def route_block_summary(blocks: list[ProcessBlock], route_block_ids: tuple[int, ...]) -> str:
+    if not route_block_ids:
+        return "Route: not set"
+
+    block_by_id = {block.id: block for block in blocks}
+    parts: list[str] = []
+    index = 0
+    while index < len(route_block_ids):
+        block_id = route_block_ids[index]
+        pass_count = 1
+        index += 1
+        while index < len(route_block_ids) and route_block_ids[index] == block_id:
+            pass_count += 1
+            index += 1
+
+        block = block_by_id.get(block_id)
+        if block is None:
+            label = f"Missing #{block_id}"
+        else:
+            base = BLOCK_TYPES.get(block.type, BLOCK_TYPES["FREE"]).label
+            number = (
+                f" #{block.equipment_number}"
+                if block.equipment_number is not None
+                else f" ID {block.id}"
+            )
+            label = f"{base}{number}"
+            if block.custom_name:
+                label = f"{label} - {block.custom_name}"
+        if pass_count > 1:
+            label = f"{label} x{pass_count}"
+        parts.append(label)
+    return "Route: " + " -> ".join(parts)
+
+
+def collapse_route_steps(route_block_ids: tuple[int, ...]) -> list[tuple[int, int]]:
+    steps: list[tuple[int, int]] = []
+    for block_id in route_block_ids:
+        if steps and steps[-1][0] == block_id:
+            previous_block_id, previous_pass_count = steps[-1]
+            steps[-1] = (previous_block_id, previous_pass_count + 1)
+        else:
+            steps.append((block_id, 1))
+    return steps
+
+
+def expand_route_steps(route_steps: list[tuple[int, int]]) -> tuple[int, ...]:
+    return tuple(
+        block_id
+        for block_id, pass_count in route_steps
+        for _ in range(max(1, pass_count))
+    )
+
+
+def adjust_route_step_pass(
+    route_steps: list[tuple[int, int]],
+    step_index: int,
+    delta: int,
+) -> list[tuple[int, int]]:
+    if step_index < 0 or step_index >= len(route_steps):
+        return list(route_steps)
+    adjusted = list(route_steps)
+    block_id, pass_count = adjusted[step_index]
+    adjusted[step_index] = (block_id, max(1, pass_count + delta))
+    return adjusted
+
+
+def route_highlight_edges(
+    blocks: list[ProcessBlock],
+    selected_input_id: int | None,
+) -> list[tuple[int, int]]:
+    if selected_input_id is None:
+        return []
+
+    block_by_id = {block.id: block for block in blocks}
+    input_block = block_by_id.get(selected_input_id)
+    if input_block is None or input_block.type != "INPUT":
+        return []
+
+    edges: list[tuple[int, int]] = []
+    previous = input_block
+    for route_block_id in input_block.route_block_ids:
+        next_block = block_by_id.get(route_block_id)
+        if next_block is None:
+            continue
+        edges.append((previous.id, next_block.id))
+        previous = next_block
+    return edges
+
+
+NEW_BLOCK_START_X = 150
+NEW_BLOCK_START_Y = 100
+NEW_BLOCK_COLUMN_GAP = 180
+NEW_BLOCK_ROW_GAP = 92
+NEW_BLOCK_ROWS_PER_COLUMN = 6
+NEW_BLOCK_SLOT_MARGIN = 12
+
+
+def next_block_position(blocks: list[ProcessBlock]) -> tuple[int, int]:
+    for slot_index in range(len(blocks) + NEW_BLOCK_ROWS_PER_COLUMN * 20):
+        column, row = divmod(slot_index, NEW_BLOCK_ROWS_PER_COLUMN)
+        x = NEW_BLOCK_START_X + column * NEW_BLOCK_COLUMN_GAP
+        y = NEW_BLOCK_START_Y + row * NEW_BLOCK_ROW_GAP
+        if not any(_block_overlaps_slot(block, x, y) for block in blocks):
+            return x, y
+
+    fallback_column, fallback_row = divmod(len(blocks), NEW_BLOCK_ROWS_PER_COLUMN)
+    return (
+        NEW_BLOCK_START_X + fallback_column * NEW_BLOCK_COLUMN_GAP,
+        NEW_BLOCK_START_Y + fallback_row * NEW_BLOCK_ROW_GAP,
+    )
+
+
+def _block_overlaps_slot(block: ProcessBlock, x: int, y: int) -> bool:
+    return not (
+        block.x + block.width + NEW_BLOCK_SLOT_MARGIN <= x
+        or x + block.width + NEW_BLOCK_SLOT_MARGIN <= block.x
+        or block.y + block.height + NEW_BLOCK_SLOT_MARGIN <= y
+        or y + block.height + NEW_BLOCK_SLOT_MARGIN <= block.y
+    )
 
 
 def build_monthly_input_choices(input_blocks: list[ProcessBlock]) -> list[MonthlyInputChoice]:
@@ -292,6 +417,7 @@ PRODUCT_TOKEN_COLORS = [
 PLAYBACK_PLAY_LABEL = "▶ 재생"
 PLAYBACK_PAUSE_LABEL = "⏸ 일시정지"
 PLAYBACK_RESET_LABEL = "↺ 시점 초기화"
+PLAYBACK_ACTION_BUTTON_WIDTH = 12
 
 
 @dataclass
@@ -575,6 +701,7 @@ class App:
         self._animation_after_id: str | None = None
         self.connection_start_kind: str | None = None
         self.connection_start_id: int | None = None
+        self.selected_route_input_id: int | None = None
         self.status_var = tk.StringVar(value="준비 완료")
 
         self._create_widgets()
@@ -972,10 +1099,11 @@ class App:
             if not custom_name:
                 return
 
+        x, y = next_block_position(self.scenario.blocks)
         block = self.scenario.add_block(
             block_type=block_type,
-            x=150,
-            y=100 + len(self.scenario.blocks) * 84,
+            x=x,
+            y=y,
             process_time_per_ea=block_type_info.default_process_time_per_ea,
             concurrent_capacity=block_type_info.default_concurrent_capacity,
             input_quantity=block_type_info.default_input_quantity,
@@ -1177,7 +1305,7 @@ class App:
         block_type_info = BLOCK_TYPES[block.type]
         dialog = tk.Toplevel(self.root)
         dialog.title(f"{self.block_display_name(block)} 설정")
-        dialog.geometry("460x420")
+        dialog.geometry("640x680")
         dialog.configure(bg="#f8fafc")
         dialog.transient(self.root)
         dialog.grab_set()
@@ -1212,6 +1340,17 @@ class App:
         concurrent_capacity_var = tk.IntVar(value=block.concurrent_capacity)
         transport_capacity_var = tk.IntVar(value=block.transport_capacity)
         transport_time_var = tk.DoubleVar(value=block.transport_time)
+        equipment_number_var = tk.IntVar(value=block.equipment_number or 1)
+        route_steps = collapse_route_steps(block.route_block_ids)
+
+        if block.type != "INPUT":
+            ttk.Label(form_frame, text="Equipment #:").grid(
+                row=row, column=0, sticky=tk.W, pady=5
+            )
+            ttk.Entry(form_frame, textvariable=equipment_number_var, width=22).grid(
+                row=row, column=1, sticky="ew", pady=5
+            )
+            row += 1
 
         if block.type == "INPUT":
             ttk.Label(form_frame, text="제품명:").grid(
@@ -1238,7 +1377,7 @@ class App:
             )
             row += 1
 
-            ttk.Label(form_frame, text="투입 시간(분):").grid(
+            ttk.Label(form_frame, text="투입 시간(시간):").grid(
                 row=row, column=0, sticky=tk.W, pady=5
             )
             ttk.Entry(form_frame, textvariable=input_time_var, width=22).grid(
@@ -1252,6 +1391,140 @@ class App:
             ttk.Entry(form_frame, textvariable=unit_weight_var, width=22).grid(
                 row=row, column=1, sticky="ew", pady=5
             )
+            row += 1
+
+            route_candidates = [
+                candidate
+                for candidate in self.scenario.blocks
+                if candidate.type != "INPUT"
+            ]
+            candidate_labels = [
+                route_block_summary(self.scenario.blocks, (candidate.id,))
+                + f" (ID {candidate.id})"
+                for candidate in route_candidates
+            ]
+            candidate_by_label = {
+                label: candidate.id
+                for label, candidate in zip(candidate_labels, route_candidates)
+            }
+            selected_candidate_var = tk.StringVar(
+                value=candidate_labels[0] if candidate_labels else ""
+            )
+
+            ttk.Label(form_frame, text="Route:").grid(
+                row=row, column=0, sticky=tk.NW, pady=5
+            )
+            route_editor = ttk.Frame(form_frame, style="Panel.TFrame")
+            route_editor.grid(row=row, column=1, sticky="nsew", pady=5)
+            for column in range(6):
+                route_editor.columnconfigure(column, weight=1)
+
+            route_listbox = tk.Listbox(route_editor, height=6, exportselection=False)
+            route_listbox.grid(row=0, column=0, columnspan=6, sticky="nsew")
+
+            def route_step_text(index: int, route_block_id: int, pass_count: int) -> str:
+                label = route_block_summary(
+                    self.scenario.blocks,
+                    tuple(route_block_id for _ in range(pass_count)),
+                ).removeprefix("Route: ")
+                return f"{index + 1}. {label}"
+
+            def selected_route_index() -> int | None:
+                selection = route_listbox.curselection()
+                if not selection:
+                    return None
+                return int(selection[0])
+
+            def refresh_route_listbox(select_index: int | None = None) -> None:
+                route_listbox.delete(0, tk.END)
+                for index, (route_block_id, pass_count) in enumerate(route_steps):
+                    route_listbox.insert(
+                        tk.END,
+                        route_step_text(index, route_block_id, pass_count),
+                    )
+                if route_steps:
+                    index = (
+                        min(max(select_index or 0, 0), len(route_steps) - 1)
+                        if select_index is not None
+                        else 0
+                    )
+                    route_listbox.selection_set(index)
+                    route_listbox.activate(index)
+
+            def add_route_step() -> None:
+                label = selected_candidate_var.get()
+                route_block_id = candidate_by_label.get(label)
+                if route_block_id is None:
+                    return
+                insert_at = selected_route_index()
+                if insert_at is None:
+                    route_steps.append((route_block_id, 1))
+                    refresh_route_listbox(len(route_steps) - 1)
+                    return
+                route_steps.insert(insert_at + 1, (route_block_id, 1))
+                refresh_route_listbox(insert_at + 1)
+
+            def remove_route_step() -> None:
+                index = selected_route_index()
+                if index is None:
+                    return
+                route_steps.pop(index)
+                refresh_route_listbox(min(index, len(route_steps) - 1))
+
+            def move_route_step(delta: int) -> None:
+                index = selected_route_index()
+                if index is None:
+                    return
+                new_index = index + delta
+                if new_index < 0 or new_index >= len(route_steps):
+                    return
+                route_steps[index], route_steps[new_index] = (
+                    route_steps[new_index],
+                    route_steps[index],
+                )
+                refresh_route_listbox(new_index)
+
+            def change_pass_count(delta: int) -> None:
+                index = selected_route_index()
+                if index is None:
+                    return
+                route_steps[:] = adjust_route_step_pass(route_steps, index, delta)
+                refresh_route_listbox(index)
+
+            candidate_box = ttk.Combobox(
+                route_editor,
+                textvariable=selected_candidate_var,
+                values=candidate_labels,
+                state="readonly" if candidate_labels else "disabled",
+                width=56,
+            )
+            candidate_box.grid(
+                row=1,
+                column=0,
+                columnspan=6,
+                sticky="ew",
+                pady=(6, 0),
+            )
+            ttk.Button(route_editor, text="Add", command=add_route_step).grid(
+                row=2, column=0, sticky="ew", pady=(6, 0), padx=(0, 2)
+            )
+            ttk.Button(route_editor, text="Remove", command=remove_route_step).grid(
+                row=2, column=1, sticky="ew", pady=(6, 0), padx=2
+            )
+            ttk.Button(route_editor, text="+ pass", command=lambda: change_pass_count(1)).grid(
+                row=2, column=2, sticky="ew", pady=(6, 0), padx=2
+            )
+            ttk.Button(route_editor, text="- pass", command=lambda: change_pass_count(-1)).grid(
+                row=2, column=3, sticky="ew", pady=(6, 0), padx=2
+            )
+            ttk.Button(route_editor, text="Up", command=lambda: move_route_step(-1)).grid(
+                row=2, column=4, sticky="ew", pady=(6, 0), padx=2
+            )
+            ttk.Button(route_editor, text="Down", command=lambda: move_route_step(1)).grid(
+                row=2, column=5, sticky="ew", pady=(6, 0), padx=(2, 0)
+            )
+            refresh_route_listbox()
+            row += 1
         elif block.type == "HOIST":
             ttk.Label(form_frame, text="1회 운반 수량(EA):").grid(
                 row=row, column=0, sticky=tk.W, pady=5
@@ -1261,14 +1534,14 @@ class App:
             )
             row += 1
 
-            ttk.Label(form_frame, text="1회 이동 시간(분):").grid(
+            ttk.Label(form_frame, text="1회 이동 시간(시간):").grid(
                 row=row, column=0, sticky=tk.W, pady=5
             )
             ttk.Entry(form_frame, textvariable=transport_time_var, width=22).grid(
                 row=row, column=1, sticky="ew", pady=5
             )
         else:
-            ttk.Label(form_frame, text="처리 시간(분/EA):").grid(
+            ttk.Label(form_frame, text="처리 시간(시간/EA):").grid(
                 row=row, column=0, sticky=tk.W, pady=5
             )
             ttk.Entry(form_frame, textvariable=process_time_var, width=22).grid(
@@ -1292,6 +1565,7 @@ class App:
                 concurrent_capacity = int(concurrent_capacity_var.get())
                 transport_capacity = int(transport_capacity_var.get())
                 transport_time = float(transport_time_var.get())
+                equipment_number = int(equipment_number_var.get())
             except tk.TclError:
                 messagebox.showerror(
                     "입력 오류",
@@ -1328,6 +1602,25 @@ class App:
                 block.input_quantity = input_quantity
                 block.input_time = input_time
                 block.unit_weight_kg_per_ea = unit_weight
+                route_block_ids = expand_route_steps(route_steps)
+                route_block_by_id = {
+                    candidate.id: candidate
+                    for candidate in self.scenario.blocks
+                    if candidate.type != "INPUT"
+                }
+                missing_route_ids = [
+                    route_block_id
+                    for route_block_id in route_block_ids
+                    if route_block_id not in route_block_by_id
+                ]
+                if missing_route_ids:
+                    messagebox.showerror(
+                        "Input error",
+                        f"Route contains missing/non-route block IDs: {missing_route_ids}",
+                    )
+                    return
+                block.route_block_ids = route_block_ids
+                block.route_review_required = False
             elif block.type == "HOIST":
                 if transport_capacity <= 0 or transport_time <= 0:
                     messagebox.showerror(
@@ -1346,6 +1639,16 @@ class App:
             else:
                 block.process_time_per_ea = process_time
                 block.concurrent_capacity = concurrent_capacity
+
+            if block.type != "INPUT":
+                old_equipment_number = block.equipment_number
+                block.equipment_number = equipment_number
+                try:
+                    self.scenario.validate_equipment_numbers()
+                except ValueError as exc:
+                    block.equipment_number = old_equipment_number
+                    messagebox.showerror("Input error", str(exc))
+                    return
 
             if block.type == "FREE":
                 block.custom_name = name_var.get().strip()
@@ -1408,7 +1711,10 @@ class App:
 
         try:
             if start_kind == "block" and kind == "block":
-                self.scenario.add_connection(start_id, target_id)
+                raise ValueError(
+                    "Process-flow connections are hidden in route mode. "
+                    "Edit the raw material input block route instead."
+                )
             elif start_kind == "operator" and kind == "block":
                 self.scenario.add_operator_assignment(start_id, target_id)
             elif start_kind == "block" and kind == "operator":
@@ -1437,6 +1743,7 @@ class App:
         if self.connection_start_id is not None:
             self.cancel_connection(event)
             return
+        self.selected_route_input_id = None
         self.select_animation_token(None)
 
     def end_connection_mode(self) -> None:
@@ -1492,6 +1799,150 @@ class App:
         self.canvas_view.redraw()
         self.status_var.set("연결이 삭제되었습니다.")
 
+    def edit_connection_routing(self, connection_id: int) -> None:
+        connection = self.find_connection(connection_id)
+        if connection is None:
+            return
+
+        product_choices = unique_preserving_order(
+            [
+                block.product_name
+                for block in self.scenario.blocks
+                if block.type == "INPUT" and block.product_name.strip()
+            ]
+        )
+        material_choices = unique_preserving_order(
+            [
+                block.material_name
+                for block in self.scenario.blocks
+                if block.type == "INPUT" and block.material_name.strip()
+            ]
+        )
+        source_choices = [
+            (
+                block.id,
+                f"{block.id}: {block.product_name}/{block.material_name}",
+            )
+            for block in self.scenario.blocks
+            if block.type == "INPUT"
+        ]
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("연결 라우팅")
+        dialog.geometry("440x520")
+        dialog.configure(bg="#f8fafc")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        ttk.Label(
+            dialog,
+            text="라우팅 조건",
+            style="Panel.TLabel",
+            font=("Arial", 13, "bold"),
+        ).pack(anchor=tk.W, padx=18, pady=(16, 4))
+        ttk.Label(
+            dialog,
+            text="선택하지 않은 항목은 모든 값을 통과시킵니다.",
+            style="Panel.TLabel",
+            wraplength=390,
+        ).pack(anchor=tk.W, padx=18, pady=(0, 12))
+
+        body = ttk.Frame(dialog, padding=(18, 0), style="Panel.TFrame")
+        body.pack(fill=tk.BOTH, expand=True)
+
+        def build_listbox(
+            title: str,
+            choices: tuple[str, ...] | list[str],
+            selected_values: tuple[str, ...],
+            row: int,
+        ) -> tk.Listbox:
+            ttk.Label(body, text=title, style="Panel.TLabel").grid(
+                row=row,
+                column=0,
+                sticky=tk.W,
+                pady=(6, 2),
+            )
+            listbox = tk.Listbox(
+                body,
+                selectmode=tk.MULTIPLE,
+                height=5,
+                exportselection=False,
+            )
+            listbox.grid(row=row + 1, column=0, sticky="nsew", pady=(0, 6))
+            for index, choice in enumerate(choices):
+                listbox.insert(tk.END, choice)
+                if choice in selected_values:
+                    listbox.selection_set(index)
+            return listbox
+
+        product_listbox = build_listbox(
+            "제품명",
+            product_choices,
+            connection.product_names,
+            0,
+        )
+        material_listbox = build_listbox(
+            "자재명",
+            material_choices,
+            connection.material_names,
+            2,
+        )
+        source_labels = [label for _block_id, label in source_choices]
+        source_selected_labels = tuple(
+            label
+            for block_id, label in source_choices
+            if block_id in connection.source_block_ids
+        )
+        source_listbox = build_listbox(
+            "원자재 투입 블록",
+            source_labels,
+            source_selected_labels,
+            4,
+        )
+        body.grid_columnconfigure(0, weight=1)
+
+        def selected_strings(listbox: tk.Listbox) -> tuple[str, ...]:
+            return tuple(listbox.get(index) for index in listbox.curselection())
+
+        def save_filters() -> None:
+            selected_source_labels = set(selected_strings(source_listbox))
+            connection.product_names = selected_strings(product_listbox)
+            connection.material_names = selected_strings(material_listbox)
+            connection.source_block_ids = tuple(
+                block_id
+                for block_id, label in source_choices
+                if label in selected_source_labels
+            )
+            self.mark_structure_changed(
+                "연결 라우팅이 변경되어 시뮬레이션 재실행이 필요합니다."
+            )
+            self.canvas_view.redraw()
+            dialog.destroy()
+            self.status_var.set("연결 라우팅이 저장되었습니다.")
+
+        button_frame = ttk.Frame(dialog, padding=12, style="Panel.TFrame")
+        button_frame.pack(fill=tk.X)
+        ttk.Button(button_frame, text="저장", command=save_filters).pack(
+            side=tk.LEFT,
+            padx=5,
+        )
+        ttk.Button(button_frame, text="취소", command=dialog.destroy).pack(
+            side=tk.LEFT,
+            padx=5,
+        )
+        dialog.wait_window()
+
+    def connection_filter_summary(self, connection: ProcessConnection) -> str:
+        parts: list[str] = []
+        if connection.product_names:
+            parts.append("P:" + ", ".join(connection.product_names))
+        if connection.material_names:
+            parts.append("M:" + ", ".join(connection.material_names))
+        if connection.source_block_ids:
+            source_ids = ", ".join(str(block_id) for block_id in connection.source_block_ids)
+            parts.append("S:" + source_ids)
+        return " | ".join(parts)
+
     def delete_operator_assignment(self, assignment_id: int) -> None:
         assignment = self.find_operator_assignment(assignment_id)
         if assignment is None:
@@ -1537,7 +1988,7 @@ class App:
         self.animation.set_result(result)
         self.result_view.display(result)
         self.refresh_animation()
-        self.status_var.set(f"시뮬레이션 완료 - 총 리드타임: {result.total_time:.1f}분")
+        self.status_var.set(f"시뮬레이션 완료 - 총 리드타임: {format_hours(result.total_time)}")
 
     def save_scenario(self) -> None:
         filename = filedialog.asksaveasfilename(
@@ -1682,6 +2133,9 @@ class App:
         self.animation.set_connections(self.scenario.connections)
         return self.animation.display_tokens(self.last_result)
 
+    def uses_route_mode(self) -> bool:
+        return any(block.type == "INPUT" for block in self.scenario.blocks)
+
     def block_display_name(self, block: ProcessBlock | None) -> str:
         if block is None:
             return "Unknown"
@@ -1690,9 +2144,15 @@ class App:
                 f"{BLOCK_TYPES[block.type].label}"
                 f"({block.product_name}/{block.material_name})"
             )
+        base_name = BLOCK_TYPES[block.type].label
+        if block.type != "INPUT" and block.equipment_number is not None:
+            label = f"{base_name} #{block.equipment_number}"
+            if block.custom_name:
+                label = f"{label} - {block.custom_name}"
+            return label
         if block.type == "FREE" and block.custom_name:
-            return block.custom_name
-        return BLOCK_TYPES[block.type].label
+            return f"{base_name} - {block.custom_name}"
+        return base_name
 
     def operator_display_name(self, operator: Operator | None) -> str:
         if operator is None:
@@ -1749,14 +2209,14 @@ class App:
             return "병목 없음"
         if block.type == "HOIST":
             return (
-                f"이론 처리율 {result.bottleneck_throughput:.3f} EA/분 "
+                f"이론 처리율 {result.bottleneck_throughput:.3f} EA/hr "
                 f"(1회 운반 수량 {block.transport_capacity} EA / "
-                f"1회 이동 시간 {block.transport_time:g}분)"
+                f"1회 이동 시간 {format_hours(block.transport_time)})"
             )
         return (
-            f"이론 처리율 {result.bottleneck_throughput:.3f} EA/분 "
+            f"이론 처리율 {result.bottleneck_throughput:.3f} EA/hr "
             f"(동시 가공 수량 {block.concurrent_capacity} EA / "
-            f"처리 시간 {block.process_time_per_ea:g}분/EA)"
+            f"처리 시간 {format_hours(block.process_time_per_ea)}/EA)"
         )
 
     def bottleneck_impact(self, result: SimulationResult) -> str:
@@ -1767,7 +2227,7 @@ class App:
             for item in result.timeline
             if item.block_id != result.bottleneck_id
         )
-        return f"다른 공정의 총 대기시간: {total_waiting:.1f}분"
+        return f"다른 공정의 총 대기시간: {format_hours(total_waiting)}"
 
 
 class PaletteView:
@@ -1849,11 +2309,12 @@ class PaletteView:
                 detail = f"{block_type.default_input_quantity} EA"
             elif key == "HOIST":
                 detail = (
-                    f"{block_type.default_transport_capacity} EA/"
-                    f"{block_type.default_transport_time:g}분"
+                    f"{block_type.default_transport_capacity} EA / "
+                    +
+                    format_hours(block_type.default_transport_time)
                 )
             else:
-                detail = f"{block_type.default_process_time_per_ea:g}분/EA"
+                detail = f"{format_hours(block_type.default_process_time_per_ea)}/EA"
             button = tk.Button(
                 scrollable_frame,
                 text=f"{block_type.icon} {block_type.label}\n({detail})",
@@ -1994,7 +2455,7 @@ class CanvasView:
         self.play_button = ttk.Button(
             self.playback_frame,
             text=PLAYBACK_PLAY_LABEL,
-            width=10,
+            width=PLAYBACK_ACTION_BUTTON_WIDTH,
             command=self.controller.toggle_playback,
         )
         self.play_button.grid(row=0, column=0, padx=(0, 4))
@@ -2019,7 +2480,7 @@ class CanvasView:
             lambda _event: self.controller.set_playback_speed(self.speed_var.get()),
         )
 
-        self.time_var = tk.StringVar(value="0.0 / 0.0분")
+        self.time_var = tk.StringVar(value="0 hr / 0 hr")
         ttk.Label(self.playback_frame, textvariable=self.time_var, width=18).grid(
             row=0,
             column=3,
@@ -2137,8 +2598,12 @@ class CanvasView:
         self.canvas.delete("all")
         self.current_tokens = self.controller.animation_display_tokens()
         self.draw_grid()
-        for connection in self.controller.scenario.connections:
-            self.draw_connection(connection)
+        uses_route_mode = getattr(self.controller, "uses_route_mode", lambda: False)
+        if not uses_route_mode():
+            for connection in self.controller.scenario.connections:
+                self.draw_connection(connection)
+        else:
+            self.draw_route_highlights()
         for assignment in self.controller.scenario.operator_assignments:
             self.draw_operator_assignment(assignment)
         for block in self.controller.scenario.blocks:
@@ -2224,6 +2689,7 @@ class CanvasView:
             fill=text_color,
             tags=f"block_{block.id}",
         )
+
         if is_bottleneck:
             self.canvas.create_rectangle(
                 block.x + block.width - 50,
@@ -2269,6 +2735,26 @@ class CanvasView:
             fill=text_color,
             tags=f"block_{block.id}",
         )
+
+    def draw_route_highlights(self) -> None:
+        for from_block_id, to_block_id in route_highlight_edges(
+            self.controller.scenario.blocks,
+            self.controller.selected_route_input_id,
+        ):
+            from_block = self.controller.find_block(from_block_id)
+            to_block = self.controller.find_block(to_block_id)
+            if from_block is None or to_block is None:
+                continue
+            line_points, _delete_position = self._connection_path(from_block, to_block)
+            self.canvas.create_line(
+                *line_points,
+                arrow=tk.LAST,
+                fill="#0ea5e9",
+                width=2,
+                smooth=True,
+                dash=(3, 5),
+                tags=f"route_{self.controller.selected_route_input_id}",
+            )
 
     def draw_operator(self, operator: Operator) -> None:
         self.canvas.create_rectangle(
@@ -2384,15 +2870,15 @@ class CanvasView:
         if block.type == "INPUT":
             return (
                 f"수량: {block.input_quantity} EA",
-                f"투입: {block.input_time:g}분",
+                format_hours(block.input_time),
             )
         if block.type == "HOIST":
             return (
                 f"운반: {block.transport_capacity} EA/회",
-                f"이동: {block.transport_time:g}분/회",
+                f"이동: {format_hours(block.transport_time)}/회",
             )
         return (
-            f"처리: {block.process_time_per_ea:g}분/EA",
+            f"처리: {format_hours(block.process_time_per_ea)}/EA",
             f"동시: {block.concurrent_capacity} EA",
         )
 
@@ -2403,17 +2889,38 @@ class CanvasView:
             return
 
         line_points, delete_position = self._connection_path(from_block, to_block)
+        filter_summary = self.controller.connection_filter_summary(connection)
+        line_color = "#7c3aed" if filter_summary else "#475569"
 
         self.canvas.create_line(
             *line_points,
             arrow=tk.LAST,
-            fill="#475569",
-            width=3,
+            fill=line_color,
+            width=4 if filter_summary else 3,
             smooth=True,
             tags=f"conn_{connection.id}",
         )
 
         mid_x, mid_y = delete_position
+        if filter_summary:
+            self.canvas.create_rectangle(
+                mid_x - 24,
+                mid_y - 28,
+                mid_x + 24,
+                mid_y - 10,
+                fill="#f5f3ff",
+                outline="#7c3aed",
+                width=1,
+                tags=f"conn_{connection.id}",
+            )
+            self.canvas.create_text(
+                mid_x,
+                mid_y - 19,
+                text="filter",
+                font=("Arial", 8, "bold"),
+                fill="#5b21b6",
+                tags=f"conn_{connection.id}",
+            )
         self.canvas.create_oval(
             mid_x - 8,
             mid_y - 8,
@@ -2659,6 +3166,10 @@ class CanvasView:
             return
 
         if block_id is not None:
+            block = self.controller.find_block(block_id)
+            if block is not None and block.type == "INPUT":
+                self.controller.selected_route_input_id = block_id
+                self.controller.refresh_animation()
             self.drag_block_id = block_id
             self.drag_operator_id = None
             self.drag_x = x
@@ -2674,6 +3185,7 @@ class CanvasView:
 
         self.drag_block_id = None
         self.drag_operator_id = None
+        self.controller.selected_route_input_id = None
         self.controller.select_animation_token(None)
 
     def on_drag(self, event: tk.Event) -> None:
@@ -2699,6 +3211,10 @@ class CanvasView:
     def on_double_click(self, event: tk.Event) -> None:
         x = self.canvas.canvasx(event.x)
         y = self.canvas.canvasy(event.y)
+        connection_id = self._connection_at(x, y)
+        if connection_id is not None:
+            self.controller.edit_connection_routing(connection_id)
+            return
         block_id = self._block_at(x, y)
         if block_id is not None:
             self.controller.edit_block_parameters(block_id)
@@ -2712,7 +3228,8 @@ class CanvasView:
         y = self.canvas.canvasy(event.y)
         block_id = self._block_at(x, y)
         operator_id = self._operator_at(x, y)
-        if block_id is None and operator_id is None:
+        connection_id = self._connection_at(x, y)
+        if block_id is None and operator_id is None and connection_id is None:
             return
 
         menu = tk.Menu(self.controller.root, tearoff=0)
@@ -2739,6 +3256,16 @@ class CanvasView:
             menu.add_command(
                 label="삭제",
                 command=lambda: self.controller.delete_operator(operator_id),
+            )
+        elif connection_id is not None:
+            menu.add_command(
+                label="Routing filters",
+                command=lambda: self.controller.edit_connection_routing(connection_id),
+            )
+            menu.add_separator()
+            menu.add_command(
+                label="Delete",
+                command=lambda: self.controller.delete_connection(connection_id),
             )
         menu.post(event.x_root, event.y_root)
 
@@ -2769,6 +3296,14 @@ class CanvasView:
         for item in clicked:
             for tag in self.canvas.gettags(item):
                 if tag.startswith("conn_") and tag.endswith("_delete"):
+                    return int(tag.split("_")[1])
+        return None
+
+    def _connection_at(self, x: float, y: float) -> int | None:
+        clicked = self.canvas.find_overlapping(x, y, x, y)
+        for item in clicked:
+            for tag in self.canvas.gettags(item):
+                if tag.startswith("conn_") and not tag.endswith("_delete"):
                     return int(tag.split("_")[1])
         return None
 
@@ -2804,9 +3339,10 @@ class CanvasView:
         self._updating_controls = False
 
         self.play_button.configure(
-            text=PLAYBACK_PAUSE_LABEL if state.is_playing else PLAYBACK_PLAY_LABEL
+            text=PLAYBACK_PAUSE_LABEL if state.is_playing else PLAYBACK_PLAY_LABEL,
+            width=PLAYBACK_ACTION_BUTTON_WIDTH,
         )
-        self.time_var.set(f"{state.current_time:.1f} / {total_time:.1f}분")
+        self.time_var.set(f"{format_hours(state.current_time)} / {format_hours(total_time)}")
         if state.is_stale:
             self.state_var.set("재실행 필요")
         elif result and state.is_compact:
@@ -3051,7 +3587,7 @@ class ResultView:
         self.summary_text.insert(tk.END, "=" * 40 + "\n")
         self.summary_text.insert(tk.END, "   묶음 기반 시뮬레이션 결과\n")
         self.summary_text.insert(tk.END, "=" * 40 + "\n\n")
-        self.summary_text.insert(tk.END, f"총 소요 시간: {result.total_time:.1f}분\n")
+        self.summary_text.insert(tk.END, f"총 리드타임: {format_hours(result.total_time)}\n")
         self.summary_text.insert(tk.END, f"전체 투입 수량: {result.total_input_quantity} EA\n")
         self.summary_text.insert(tk.END, f"최종 output 수량: {result.final_output_quantity} EA\n\n")
         self.summary_text.insert(
@@ -3078,7 +3614,7 @@ class ResultView:
             if result.final_output_quantity > 0
             else 0
         )
-        self.summary_text.insert(tk.END, f"평균 소요 시간: {avg_cycle:.1f}분/EA\n")
+        self.summary_text.insert(tk.END, f"평균 리드타임: {format_hours(avg_cycle)}/EA\n")
 
         self._draw_timeline(result)
         self._write_analysis(result, bottleneck_name, bottleneck_reason, bottleneck_impact)
@@ -3106,7 +3642,7 @@ class ResultView:
             return
         if state.is_stale:
             self.animation_summary_var.set(
-                f"결과 오래됨 · 마지막 총 소요 시간 {result.total_time:.1f}분"
+                f"결과 오래됨 · 마지막 총 리드타임 {format_hours(result.total_time)}"
             )
             self.animation_selection_var.set("시뮬레이션 재실행 후 묶음 선택 가능")
             return
@@ -3114,7 +3650,7 @@ class ResultView:
         tokens = self.controller.animation_display_tokens()
         summary = self.controller.animation.current_summary(tokens)
         summary_text = (
-            f"현재 {state.current_time:.1f} / {result.total_time:.1f}분 · "
+            f"현재 {format_hours(state.current_time)} / {format_hours(result.total_time)} · "
             f"대기 {summary.get('waiting', 0)}개 · "
             f"처리 {summary.get('processing', 0)}개 · "
             f"완료 {summary.get('complete', 0)}개"
@@ -3144,8 +3680,9 @@ class ResultView:
             f"선택 묶음 #{selected.bundle_id}: "
             f"{selected.product_name}/{selected.material_name} {selected.quantity}EA · "
             f"{state_label} · {block_name} · "
-            f"{selected.arrival_time:.1f}/{selected.start_time:.1f}/"
-            f"{selected.completion_time:.1f}분"
+            f"{format_hours(selected.arrival_time)}/"
+            f"{format_hours(selected.start_time)}/"
+            f"{format_hours(selected.completion_time)}"
         )
 
     def update_monthly_production_panel(self) -> None:
@@ -3186,7 +3723,7 @@ class ResultView:
                 )
                 production_result = calculate_weekly_expected_production(
                     output_quantity_ea=selected_output_quantity,
-                    elapsed_minutes=result.total_time,
+                    elapsed_minutes=result.total_time * 60,
                     unit_weight_kg_per_ea=selected_choice.unit_weight_for_output(
                         result.final_output_quantity_by_source_block,
                     ),
@@ -3220,8 +3757,8 @@ class ResultView:
                     f"기준: 예상 산출 "
                     f"{format_compact_number(production_result.weekly_expected_output_ea)} EA / "
                     f"최종 산출 {format_compact_number(production_result.output_quantity_ea)} EA\n"
-                    f"주 가동 {format_compact_number(production_result.available_minutes)}분 · "
-                    f"실적 {format_compact_number(realized_weekly_minutes_per_ea(production_result.available_minutes, result), 3)} 분/EA"
+                    f"주 가동 {format_compact_number(production_result.available_minutes / 60)} hr · "
+                    f"실적 {format_compact_number(realized_weekly_minutes_per_ea(production_result.available_minutes, result) / 60, 3)} hr/EA"
                 ),
                 color="#0369a1",
             )
@@ -3331,7 +3868,7 @@ class ResultView:
                 self.timeline_canvas.create_text(
                     10,
                     y_offset + 30,
-                    text=f"평균 대기: {item.avg_waiting:.1f}분",
+                    text=f"평균 대기: {format_hours(item.avg_waiting)}",
                     anchor=tk.W,
                     font=("Arial", 8),
                     fill="#ef4444",
@@ -3411,6 +3948,26 @@ class ResultView:
         )
         self.analysis_text.insert(tk.END, f"{flow_diagram}\n\n")
 
+        if result.route_details:
+            self.analysis_text.insert(tk.END, "Route details\n")
+            self.analysis_text.insert(tk.END, "-" * 70 + "\n")
+            for detail in result.route_details:
+                block_name = self.controller.block_display_name(
+                    self.controller.find_block(detail.block_id)
+                )
+                pass_text = f" x{detail.pass_count}" if detail.pass_count > 1 else ""
+                self.analysis_text.insert(
+                    tk.END,
+                    f"Input {detail.input_block_id} step {detail.step_order}: "
+                    f"{block_name}{pass_text} | "
+                    f"{detail.product_name}/{detail.material_name} {detail.quantity}EA | "
+                    f"arrival {format_hours(detail.arrival_time)}, "
+                    f"start {format_hours(detail.start_time)}, "
+                    f"complete {format_hours(detail.completion_time)}, "
+                    f"wait {format_hours(detail.waiting_time)}\n",
+                )
+            self.analysis_text.insert(tk.END, "\n")
+
         self.analysis_text.insert(tk.END, "공정별 상세 분석\n")
         self.analysis_text.insert(tk.END, "-" * 70 + "\n")
         for idx, item in enumerate(result.timeline, 1):
@@ -3441,7 +3998,7 @@ class ResultView:
                     f"   • 호이스트 이동 횟수: {item.transport_trips}회\n",
                 )
             self.analysis_text.insert(tk.END, "\n   성능 지표:\n")
-            self.analysis_text.insert(tk.END, f"   • 평균 대기 시간: {item.avg_waiting:.1f}분\n")
+            self.analysis_text.insert(tk.END, f"   • 평균 대기 시간: {format_hours(item.avg_waiting)}\n")
 
             if item.block_id == result.bottleneck_id:
                 self.analysis_text.insert(tk.END, "\n   병목 공정\n")
@@ -3455,8 +4012,8 @@ class ResultView:
                         tk.END,
                         f"   {bundle.product_name}/{bundle.material_name} "
                         f"{bundle.quantity}EA: "
-                        f"{bundle.start_time:.1f}분 → {bundle.completion_time:.1f}분 "
-                        f"({bundle.completion_time - bundle.start_time:.1f}분)\n",
+                        f"{format_hours(bundle.start_time)} -> {format_hours(bundle.completion_time)} "
+                        f"({format_hours(bundle.completion_time - bundle.start_time)})\n",
                     )
 
         self.analysis_text.insert(tk.END, "\n\n병목 분석 및 개선 제안\n")
@@ -3484,7 +4041,7 @@ class ResultView:
             )
             self.analysis_text.insert(tk.END, f"   • 원자재명: {block.material_name}\n")
             self.analysis_text.insert(tk.END, f"   • 투입 원자재 수: {block.input_quantity} EA\n")
-            self.analysis_text.insert(tk.END, f"   • 투입 시간: {block.input_time:g}분\n")
+            self.analysis_text.insert(tk.END, f"   • 투입 시간: {format_hours(block.input_time)}\n")
             self.analysis_text.insert(
                 tk.END,
                 f"   • 단위중량: {block.unit_weight_kg_per_ea:g} kg/EA\n",
@@ -3492,20 +4049,20 @@ class ResultView:
             return
         if block and block.type == "HOIST":
             self.analysis_text.insert(tk.END, f"   • 1회 운반 수량: {block.transport_capacity} EA\n")
-            self.analysis_text.insert(tk.END, f"   • 1회 이동 시간: {block.transport_time:g}분\n")
-            self.analysis_text.insert(tk.END, f"   • 이론 운반율: {item.throughput:.3f} EA/분\n")
+            self.analysis_text.insert(tk.END, f"   • 1회 이동 시간: {format_hours(block.transport_time)}\n")
+            self.analysis_text.insert(tk.END, f"   • 이론 운반율: {item.throughput:.3f} EA/hr\n")
             return
 
         if block:
             self.analysis_text.insert(
                 tk.END,
-                f"   • 처리 시간: {block.process_time_per_ea:g}분/EA\n",
+                f"   • 처리 시간: {format_hours(block.process_time_per_ea)}/EA\n",
             )
             self.analysis_text.insert(
                 tk.END,
                 f"   • 동시 가공 수량: {block.concurrent_capacity} EA\n",
             )
-        self.analysis_text.insert(tk.END, f"   • 이론 처리율: {item.throughput:.3f} EA/분\n")
+        self.analysis_text.insert(tk.END, f"   • 이론 처리율: {item.throughput:.3f} EA/hr\n")
 
     def _block_icon(self, block_id: int) -> str:
         block = self.controller.find_block(block_id)
@@ -3524,7 +4081,7 @@ class ResultView:
         if block and block.type == "INPUT":
             return (
                 f"투입 {item.total_processed} EA | 묶음 {item.processed_bundle_count}개 | "
-                f"투입 시간 {block.input_time:g}분"
+                f"투입 시간 {format_hours(block.input_time)}"
             )
         if block and block.type == "HOIST":
             return (
@@ -3533,10 +4090,24 @@ class ResultView:
             )
         return (
             f"처리 {item.total_processed} EA | 묶음 {item.processed_bundle_count}개 | "
-            f"이론 처리율 {item.throughput:.3f} EA/분"
+            f"이론 처리율 {item.throughput:.3f} EA/hr"
         )
 
     def _route_text(self, block_id: int) -> str:
+        if self.controller.uses_route_mode():
+            used_by = [
+                block
+                for block in self.controller.scenario.blocks
+                if block.type == "INPUT" and block_id in block.route_block_ids
+            ]
+            if not used_by:
+                return "Route: unused"
+            labels = [
+                f"{block.product_name}/{block.material_name}"
+                for block in used_by
+            ]
+            return "Route input: " + ", ".join(labels)
+
         outgoing = [
             connection
             for connection in self.controller.scenario.connections

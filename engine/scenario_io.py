@@ -45,15 +45,14 @@ def save(scenario: Scenario, path: str | Path) -> None:
                 "transport_capacity": block.transport_capacity,
                 "transport_time": block.transport_time,
                 "custom_name": block.custom_name,
+                "route_block_ids": list(block.route_block_ids),
+                "route_review_required": block.route_review_required,
+                "equipment_number": block.equipment_number,
             }
             for block in scenario.blocks
         ],
         "connections": [
-            {
-                "id": connection.id,
-                "from": connection.from_block,
-                "to": connection.to_block,
-            }
+            _connection_to_data(connection)
             for connection in scenario.connections
         ],
         "operators": [
@@ -102,15 +101,19 @@ def load(path: str | Path) -> Scenario:
                 transport_capacity=block_data.get("transport_capacity", 1),
                 transport_time=block_data.get("transport_time", 1.0),
                 custom_name=block_data.get("custom_name", ""),
+                route_block_ids=tuple(
+                    int(block_id)
+                    for block_id in block_data.get("route_block_ids", [])
+                ),
+                route_review_required=bool(
+                    block_data.get("route_review_required", False)
+                ),
+                equipment_number=block_data.get("equipment_number"),
             )
             for block_data in data.get("blocks", [])
         ],
         connections=[
-            ProcessConnection(
-                id=connection_data["id"],
-                from_block=connection_data["from"],
-                to_block=connection_data["to"],
-            )
+            _connection_from_data(connection_data)
             for connection_data in data.get("connections", [])
         ],
         operators=[
@@ -134,6 +137,7 @@ def load(path: str | Path) -> Scenario:
             for assignment_data in data.get("operator_assignments", [])
         ],
     )
+    scenario.ensure_equipment_numbers()
     return scenario
 
 
@@ -209,15 +213,14 @@ def _scenario_to_data(scenario: Scenario) -> dict[str, Any]:
                 "transport_capacity": block.transport_capacity,
                 "transport_time": block.transport_time,
                 "custom_name": block.custom_name,
+                "route_block_ids": list(block.route_block_ids),
+                "route_review_required": block.route_review_required,
+                "equipment_number": block.equipment_number,
             }
             for block in scenario.blocks
         ],
         "connections": [
-            {
-                "id": connection.id,
-                "from": connection.from_block,
-                "to": connection.to_block,
-            }
+            _connection_to_data(connection)
             for connection in scenario.connections
         ],
         "operators": [
@@ -242,17 +245,13 @@ def _scenario_to_data(scenario: Scenario) -> dict[str, Any]:
 
 
 def _scenario_from_data(data: dict[str, Any]) -> Scenario:
-    return Scenario(
+    scenario = Scenario(
         blocks=[
             ProcessBlock(**_block_kwargs(block_data))
             for block_data in data.get("blocks", [])
         ],
         connections=[
-            ProcessConnection(
-                id=connection_data["id"],
-                from_block=connection_data["from"],
-                to_block=connection_data["to"],
-            )
+            _connection_from_data(connection_data)
             for connection_data in data.get("connections", [])
         ],
         operators=[
@@ -276,6 +275,8 @@ def _scenario_from_data(data: dict[str, Any]) -> Scenario:
             for assignment_data in data.get("operator_assignments", [])
         ],
     )
+    scenario.ensure_equipment_numbers()
+    return scenario
 
 
 def _block_kwargs(block_data: dict[str, Any]) -> dict[str, Any]:
@@ -296,10 +297,50 @@ def _block_kwargs(block_data: dict[str, Any]) -> dict[str, Any]:
         "transport_capacity",
         "transport_time",
         "custom_name",
+        "route_review_required",
+        "equipment_number",
     ):
         if field_name in block_data:
             kwargs[field_name] = block_data[field_name]
+    if "route_block_ids" in block_data:
+        kwargs["route_block_ids"] = tuple(
+            int(block_id) for block_id in block_data.get("route_block_ids", [])
+        )
     return kwargs
+
+
+def _connection_to_data(connection: ProcessConnection) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "id": connection.id,
+        "from": connection.from_block,
+        "to": connection.to_block,
+    }
+    if connection.product_names:
+        data["product_names"] = list(connection.product_names)
+    if connection.material_names:
+        data["material_names"] = list(connection.material_names)
+    if connection.source_block_ids:
+        data["source_block_ids"] = list(connection.source_block_ids)
+    return data
+
+
+def _connection_from_data(connection_data: dict[str, Any]) -> ProcessConnection:
+    return ProcessConnection(
+        id=connection_data["id"],
+        from_block=connection_data["from"],
+        to_block=connection_data["to"],
+        product_names=_string_tuple(connection_data.get("product_names", [])),
+        material_names=_string_tuple(connection_data.get("material_names", [])),
+        source_block_ids=tuple(
+            int(block_id) for block_id in connection_data.get("source_block_ids", [])
+        ),
+    )
+
+
+def _string_tuple(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(str(item) for item in value if str(item).strip())
 
 
 def _write_json(data: dict[str, Any], path: str | Path) -> None:

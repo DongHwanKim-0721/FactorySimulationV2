@@ -19,6 +19,9 @@ class ProcessBlock:
     transport_capacity: int = 1
     transport_time: float = 1.0
     custom_name: str = ""
+    route_block_ids: tuple[int, ...] = ()
+    route_review_required: bool = False
+    equipment_number: int | None = None
     width: int = 132
     height: int = 70
 
@@ -28,6 +31,9 @@ class ProcessConnection:
     id: int
     from_block: int
     to_block: int
+    product_names: tuple[str, ...] = ()
+    material_names: tuple[str, ...] = ()
+    source_block_ids: tuple[int, ...] = ()
 
 
 @dataclass
@@ -85,6 +91,49 @@ class Scenario:
             return 1
         return max(assignment.id for assignment in self.operator_assignments) + 1
 
+    def next_equipment_number(self, block_type: str) -> int:
+        numbers = [
+            block.equipment_number
+            for block in self.blocks
+            if block.type == block_type and block.equipment_number is not None
+        ]
+        if not numbers:
+            return 1
+        return max(numbers) + 1
+
+    def validate_equipment_numbers(self) -> None:
+        seen: set[tuple[str, int]] = set()
+        for block in self.blocks:
+            if block.type == "INPUT":
+                continue
+            if block.equipment_number is None:
+                raise ValueError("Route-capable blocks require an equipment number.")
+            if block.equipment_number <= 0:
+                raise ValueError("Equipment number must be greater than 0.")
+            key = (block.type, block.equipment_number)
+            if key in seen:
+                raise ValueError(
+                    "Duplicate equipment number is not allowed within the same block type."
+                )
+            seen.add(key)
+
+    def ensure_equipment_numbers(self) -> None:
+        next_by_type: dict[str, int] = {}
+        for block in self.blocks:
+            if block.type == "INPUT":
+                block.equipment_number = None
+                continue
+            if block.equipment_number is not None:
+                next_by_type[block.type] = max(
+                    next_by_type.get(block.type, 1),
+                    block.equipment_number + 1,
+                )
+                continue
+            number = next_by_type.get(block.type, 1)
+            block.equipment_number = number
+            next_by_type[block.type] = number + 1
+        self.validate_equipment_numbers()
+
     def add_block(
         self,
         block_type: str,
@@ -100,8 +149,18 @@ class Scenario:
         transport_capacity: int = 1,
         transport_time: float = 1.0,
         custom_name: str = "",
+        route_block_ids: tuple[int, ...] | list[int] | None = None,
+        route_review_required: bool = False,
+        equipment_number: int | None = None,
         block_id: int | None = None,
     ) -> ProcessBlock:
+        assigned_equipment_number = (
+            None
+            if block_type == "INPUT"
+            else equipment_number
+            if equipment_number is not None
+            else self.next_equipment_number(block_type)
+        )
         block = ProcessBlock(
             id=block_id if block_id is not None else self.next_block_id(),
             type=block_type,
@@ -117,11 +176,20 @@ class Scenario:
             transport_capacity=transport_capacity,
             transport_time=transport_time,
             custom_name=custom_name,
+            route_block_ids=tuple(route_block_ids or ()),
+            route_review_required=route_review_required,
+            equipment_number=assigned_equipment_number,
         )
         self.blocks.append(block)
+        try:
+            self.validate_equipment_numbers()
+        except ValueError:
+            self.blocks.remove(block)
+            raise
         return block
 
     def delete_block(self, block_id: int) -> None:
+        deleted_block = self.block_by_id(block_id)
         self.blocks = [block for block in self.blocks if block.id != block_id]
         self.connections = [
             connection
@@ -133,12 +201,25 @@ class Scenario:
             for assignment in self.operator_assignments
             if assignment.block_id != block_id
         ]
+        if deleted_block is not None and deleted_block.type != "INPUT":
+            for block in self.blocks:
+                if block.type != "INPUT" or block_id not in block.route_block_ids:
+                    continue
+                block.route_block_ids = tuple(
+                    route_block_id
+                    for route_block_id in block.route_block_ids
+                    if route_block_id != block_id
+                )
+                block.route_review_required = True
 
     def add_connection(
         self,
         from_block: int,
         to_block: int,
         connection_id: int | None = None,
+        product_names: tuple[str, ...] | list[str] | set[str] | None = None,
+        material_names: tuple[str, ...] | list[str] | set[str] | None = None,
+        source_block_ids: tuple[int, ...] | list[int] | set[int] | None = None,
     ) -> ProcessConnection:
         if from_block == to_block:
             raise ValueError("같은 블록끼리는 연결할 수 없습니다.")
@@ -164,6 +245,9 @@ class Scenario:
             id=connection_id if connection_id is not None else self.next_connection_id(),
             from_block=from_block,
             to_block=to_block,
+            product_names=tuple(product_names or ()),
+            material_names=tuple(material_names or ()),
+            source_block_ids=tuple(source_block_ids or ()),
         )
         self.connections.append(connection)
         return connection

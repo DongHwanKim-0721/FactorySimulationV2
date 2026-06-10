@@ -26,6 +26,8 @@ class BundleRecord:
     start_time: float
     completion_time: float
     transport_trips: int = 0
+    pass_count: int = 1
+    assigned_operator_id: int | None = None
 
 
 @dataclass
@@ -59,6 +61,24 @@ class SimulationResult:
     bottleneck_id: int | None
     bottleneck_throughput: float
     process_flow: list[int]
+    route_details: list[RouteStepRecord] | None = None
+
+
+@dataclass(frozen=True)
+class RouteStepRecord:
+    input_block_id: int
+    step_order: int
+    block_id: int
+    pass_count: int
+    product_name: str
+    material_name: str
+    quantity: int
+    arrival_time: float
+    start_time: float
+    completion_time: float
+    waiting_time: float
+    transport_trips: int = 0
+    assigned_operator_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -98,9 +118,12 @@ def simulate(
     operator_assignments = operator_assignments or []
 
     _validate_block_fields(blocks)
+    _validate_operator_assignments(blocks, operators, operator_assignments)
+    if _uses_route_mode(blocks, connections):
+        return _simulate_routes(blocks, operators, operator_assignments)
+
     process_flow = _validate_and_topological_flow(blocks, connections)
     _validate_bundle_graph(blocks, connections)
-    _validate_operator_assignments(blocks, operators, operator_assignments)
 
     if operator_assignments:
         return _simulate_with_operator_constraints(
@@ -192,6 +215,288 @@ def _build_simulation_result(
         bottleneck_id=bottleneck_id,
         bottleneck_throughput=bottleneck_throughput,
         process_flow=process_flow,
+    )
+
+
+@dataclass(frozen=True)
+class _RouteStep:
+    block_id: int
+    pass_count: int
+
+
+@dataclass
+class _RouteState:
+    input_block: ProcessBlock
+    bundle: _Bundle
+    steps: list[_RouteStep]
+    step_index: int
+    arrival_time: float
+
+
+def _uses_route_mode(
+    blocks: list[ProcessBlock],
+    connections: list[ProcessConnection],
+) -> bool:
+    input_blocks = [block for block in blocks if _is_input(block)]
+    if not input_blocks:
+        return False
+    if any(block.route_block_ids or block.route_review_required for block in input_blocks):
+        return True
+    has_route_target = any(not _is_input(block) for block in blocks)
+    return has_route_target and not connections
+
+
+def _simulate_routes(
+    blocks: list[ProcessBlock],
+    operators: list[Operator],
+    operator_assignments: list[OperatorAssignment],
+) -> SimulationResult:
+    if not blocks:
+        return _build_route_simulation_result([], [], blocks)
+
+    block_by_id = {block.id: block for block in blocks}
+    _validate_routes(blocks, block_by_id)
+    process_flow = [block.id for block in blocks]
+    assigned_operator_by_block = {
+        assignment.block_id: assignment.operator_id
+        for assignment in operator_assignments
+    }
+
+    route_states: list[_RouteState] = []
+    next_bundle_id = 1
+    for sequence, block in enumerate(blocks, 1):
+        if not _is_input(block) or block.input_quantity == 0:
+            continue
+        bundle = _Bundle(
+            bundle_id=next_bundle_id,
+            product_name=block.product_name,
+            material_name=block.material_name,
+            quantity=block.input_quantity,
+            source_block_id=block.id,
+            arrival_time=float(block.input_time),
+            sequence=sequence,
+        )
+        next_bundle_id += 1
+        route_states.append(
+            _RouteState(
+                input_block=block,
+                bundle=bundle,
+                steps=_collapse_route(block.route_block_ids),
+                step_index=0,
+                arrival_time=float(block.input_time),
+            )
+        )
+
+    processed_by_block: dict[int, list[_ProcessedBundle]] = {
+        block.id: [] for block in blocks
+    }
+    route_details: list[RouteStepRecord] = []
+    block_available_at = {block.id: 0.0 for block in blocks}
+    operator_available_at = {operator.id: 0.0 for operator in operators}
+    route_sequence = 0
+
+    def candidate_for_state(state: _RouteState) -> tuple[float, float, int, int, int]:
+        step = state.steps[state.step_index]
+        block = block_by_id[step.block_id]
+        operator_id = assigned_operator_by_block.get(step.block_id)
+        ready_time = max(block_available_at[step.block_id], state.arrival_time)
+        if operator_id is not None:
+            ready_time = max(ready_time, operator_available_at[operator_id])
+        return (
+            ready_time,
+            state.arrival_time,
+            process_flow.index(step.block_id),
+            step.block_id,
+            state.input_block.id,
+        )
+
+    while any(state.step_index < len(state.steps) for state in route_states):
+        pending = [
+            state
+            for state in route_states
+            if state.step_index < len(state.steps)
+        ]
+        _ready, _arrival, _order, block_id, input_block_id = min(
+            candidate_for_state(state) for state in pending
+        )
+        block = block_by_id[block_id]
+        selected_state = next(
+            state
+            for state in pending
+            if state.input_block.id == input_block_id
+        )
+
+        if _is_hoist(block):
+            states_to_process = [selected_state]
+        else:
+            material_name = selected_state.bundle.material_name
+            states_to_process = sorted(
+                [
+                    state
+                    for state in pending
+                    if state.steps[state.step_index].block_id == block_id
+                    and state.bundle.material_name == material_name
+                ],
+                key=lambda state: (state.arrival_time, state.bundle.sequence),
+            )
+
+        for state in states_to_process:
+            step = state.steps[state.step_index]
+            operator_id = assigned_operator_by_block.get(step.block_id)
+            start_time = max(block_available_at[step.block_id], state.arrival_time)
+            if operator_id is not None:
+                start_time = max(start_time, operator_available_at[operator_id])
+
+            duration, transport_trips = _route_operation_duration(
+                block,
+                state.bundle.quantity,
+                step.pass_count,
+            )
+            completion_time = start_time + duration
+            route_sequence += 1
+            routed_bundle = _Bundle(
+                bundle_id=state.bundle.bundle_id,
+                product_name=state.bundle.product_name,
+                material_name=state.bundle.material_name,
+                quantity=state.bundle.quantity,
+                source_block_id=state.bundle.source_block_id,
+                arrival_time=state.arrival_time,
+                sequence=route_sequence,
+            )
+            processed_by_block[step.block_id].append(
+                _ProcessedBundle(
+                    bundle=routed_bundle,
+                    start_time=start_time,
+                    completion_time=completion_time,
+                    transport_trips=transport_trips,
+                )
+            )
+            route_details.append(
+                RouteStepRecord(
+                    input_block_id=state.input_block.id,
+                    step_order=state.step_index + 1,
+                    block_id=step.block_id,
+                    pass_count=step.pass_count,
+                    product_name=state.bundle.product_name,
+                    material_name=state.bundle.material_name,
+                    quantity=state.bundle.quantity,
+                    arrival_time=state.arrival_time,
+                    start_time=start_time,
+                    completion_time=completion_time,
+                    waiting_time=start_time - state.arrival_time,
+                    transport_trips=transport_trips,
+                    assigned_operator_id=operator_id,
+                )
+            )
+            block_available_at[step.block_id] = completion_time
+            if operator_id is not None:
+                operator_available_at[operator_id] = completion_time
+            state.arrival_time = completion_time
+            state.step_index += 1
+
+    timeline = [
+        _build_block_result(block_by_id[block_id], processed_by_block[block_id])
+        for block_id in process_flow
+    ]
+    return _build_route_simulation_result(timeline, route_details, blocks)
+
+
+def _validate_routes(
+    blocks: list[ProcessBlock],
+    block_by_id: dict[int, ProcessBlock],
+) -> None:
+    for block in blocks:
+        if not _is_input(block):
+            continue
+        if block.route_review_required:
+            raise ValueError("Input route needs review before simulation.")
+        if not block.route_block_ids:
+            raise ValueError("Input route cannot be empty in route mode.")
+        for route_block_id in block.route_block_ids:
+            route_block = block_by_id.get(route_block_id)
+            if route_block is None:
+                raise ValueError("Input route references a missing block.")
+            if _is_input(route_block):
+                raise ValueError("Input routes can contain only non-input blocks.")
+            if _operation_time(route_block) <= 0:
+                raise ValueError("Route steps must have positive operation time.")
+
+
+def _collapse_route(route_block_ids: tuple[int, ...]) -> list[_RouteStep]:
+    steps: list[_RouteStep] = []
+    for block_id in route_block_ids:
+        if steps and steps[-1].block_id == block_id:
+            previous = steps[-1]
+            steps[-1] = _RouteStep(previous.block_id, previous.pass_count + 1)
+        else:
+            steps.append(_RouteStep(block_id=block_id, pass_count=1))
+    return steps
+
+
+def _route_operation_duration(
+    block: ProcessBlock,
+    quantity: int,
+    pass_count: int,
+) -> tuple[float, int]:
+    if _is_hoist(block):
+        trips = ceil(quantity / block.transport_capacity)
+        return trips * block.transport_time * pass_count, trips * pass_count
+    return (
+        ceil(quantity / block.concurrent_capacity)
+        * block.process_time_per_ea
+        * pass_count,
+        0,
+    )
+
+
+def _build_route_simulation_result(
+    timeline: list[BlockResult],
+    route_details: list[RouteStepRecord],
+    blocks: list[ProcessBlock],
+) -> SimulationResult:
+    block_by_id = {block.id: block for block in blocks}
+    bottleneck_id, bottleneck_throughput = _analyze_bottleneck(timeline, block_by_id)
+    input_blocks = [block for block in blocks if _is_input(block)]
+    input_quantity_by_product: dict[str, int] = {}
+    for block in input_blocks:
+        input_quantity_by_product[block.product_name] = (
+            input_quantity_by_product.get(block.product_name, 0)
+            + block.input_quantity
+        )
+
+    final_output_quantity_by_product: dict[str, int] = {}
+    final_output_quantity_by_source_block: dict[int, int] = {}
+    final_completion_by_source: dict[int, float] = {}
+    for detail in route_details:
+        final_completion_by_source[detail.input_block_id] = max(
+            final_completion_by_source.get(detail.input_block_id, 0),
+            detail.completion_time,
+        )
+    for block in input_blocks:
+        if block.input_quantity == 0:
+            continue
+        if block.id not in final_completion_by_source:
+            continue
+        final_output_quantity_by_product[block.product_name] = (
+            final_output_quantity_by_product.get(block.product_name, 0)
+            + block.input_quantity
+        )
+        final_output_quantity_by_source_block[block.id] = block.input_quantity
+
+    product_names = set(input_quantity_by_product) | set(final_output_quantity_by_product)
+    return SimulationResult(
+        timeline=timeline,
+        total_time=max(final_completion_by_source.values(), default=0),
+        total_input_quantity=sum(block.input_quantity for block in input_blocks),
+        final_output_quantity=sum(final_output_quantity_by_source_block.values()),
+        input_quantity_by_product=input_quantity_by_product,
+        final_output_quantity_by_product=final_output_quantity_by_product,
+        final_output_quantity_by_source_block=final_output_quantity_by_source_block,
+        unique_product_count=len(product_names),
+        bottleneck_id=bottleneck_id,
+        bottleneck_throughput=bottleneck_throughput,
+        process_flow=[block.id for block in blocks],
+        route_details=route_details,
     )
 
 
@@ -767,8 +1072,15 @@ def _route_processed_bundles(
 
     for processed_bundle in processed:
         bundle = processed_bundle.bundle
-        if len(outgoing_connections) == 1:
-            child_id = outgoing_connections[0].to_block
+        matching_connections = _matching_outgoing_connections(
+            bundle,
+            outgoing_connections,
+        )
+        if not matching_connections:
+            continue
+
+        if len(matching_connections) == 1:
+            child_id = matching_connections[0].to_block
             arrivals_by_block[child_id].append(
                 _Bundle(
                     bundle_id=bundle.bundle_id,
@@ -784,7 +1096,7 @@ def _route_processed_bundles(
 
         for child_id, quantity in _split_quantity_by_weights(
             bundle.quantity,
-            outgoing_connections,
+            matching_connections,
             block_by_id,
         ):
             if quantity <= 0:
@@ -800,6 +1112,57 @@ def _route_processed_bundles(
                     sequence=next_sequence(),
                 )
             )
+
+
+def _matching_outgoing_connections(
+    bundle: _Bundle,
+    outgoing_connections: list[ProcessConnection],
+) -> list[ProcessConnection]:
+    filtered_matches = [
+        connection
+        for connection in outgoing_connections
+        if _connection_has_filters(connection)
+        and _connection_matches_bundle(
+            connection,
+            bundle.product_name,
+            bundle.material_name,
+            bundle.source_block_id,
+        )
+    ]
+    if filtered_matches:
+        return filtered_matches
+
+    return [
+        connection
+        for connection in outgoing_connections
+        if not _connection_has_filters(connection)
+    ]
+
+
+def _connection_has_filters(connection: ProcessConnection) -> bool:
+    return bool(
+        connection.product_names
+        or connection.material_names
+        or connection.source_block_ids
+    )
+
+
+def _connection_matches_bundle(
+    connection: ProcessConnection,
+    product_name: str,
+    material_name: str,
+    source_block_id: int,
+) -> bool:
+    if connection.product_names and product_name not in connection.product_names:
+        return False
+    if connection.material_names and material_name not in connection.material_names:
+        return False
+    if (
+        connection.source_block_ids
+        and source_block_id not in connection.source_block_ids
+    ):
+        return False
+    return True
 
 
 def _split_quantity_by_weights(
@@ -891,12 +1254,12 @@ def _total_sink_time(
     if not timeline:
         return 0
 
-    parent_ids = {connection.from_block for connection in connections}
-    sink_ids = {item.block_id for item in timeline if item.block_id not in parent_ids}
+    outgoing_by_id = _outgoing_by_id(connections)
     sink_completion_times = [
-        max(item.completion_times)
+        record.completion_time
         for item in timeline
-        if item.block_id in sink_ids and item.completion_times
+        for record in item.bundles
+        if _is_final_bundle_record(record, outgoing_by_id)
     ]
     return max(sink_completion_times, default=0)
 
@@ -905,11 +1268,12 @@ def _final_output_quantity(
     timeline: list[BlockResult],
     connections: list[ProcessConnection],
 ) -> int:
-    parent_ids = {connection.from_block for connection in connections}
+    outgoing_by_id = _outgoing_by_id(connections)
     return sum(
-        item.total_processed
+        record.quantity
         for item in timeline
-        if item.block_id not in parent_ids
+        for record in item.bundles
+        if _is_final_bundle_record(record, outgoing_by_id)
     )
 
 
@@ -932,12 +1296,12 @@ def _final_output_quantity_by_product(
     timeline: list[BlockResult],
     connections: list[ProcessConnection],
 ) -> dict[str, int]:
-    parent_ids = {connection.from_block for connection in connections}
+    outgoing_by_id = _outgoing_by_id(connections)
     quantities: dict[str, int] = {}
     for item in timeline:
-        if item.block_id in parent_ids:
-            continue
         for bundle in item.bundles:
+            if not _is_final_bundle_record(bundle, outgoing_by_id):
+                continue
             quantities[bundle.product_name] = (
                 quantities.get(bundle.product_name, 0) + bundle.quantity
             )
@@ -948,16 +1312,51 @@ def _final_output_quantity_by_source_block(
     timeline: list[BlockResult],
     connections: list[ProcessConnection],
 ) -> dict[int, int]:
-    parent_ids = {connection.from_block for connection in connections}
+    outgoing_by_id = _outgoing_by_id(connections)
     quantities: dict[int, int] = {}
     for item in timeline:
-        if item.block_id in parent_ids:
-            continue
         for bundle in item.bundles:
+            if not _is_final_bundle_record(bundle, outgoing_by_id):
+                continue
             quantities[bundle.source_block_id] = (
                 quantities.get(bundle.source_block_id, 0) + bundle.quantity
             )
     return quantities
+
+
+def _is_final_bundle_record(
+    record: BundleRecord,
+    outgoing_by_id: dict[int, list[ProcessConnection]],
+) -> bool:
+    outgoing_connections = outgoing_by_id.get(record.block_id, [])
+    if not outgoing_connections:
+        return True
+    return not _matching_record_connections(record, outgoing_connections)
+
+
+def _matching_record_connections(
+    record: BundleRecord,
+    outgoing_connections: list[ProcessConnection],
+) -> list[ProcessConnection]:
+    filtered_matches = [
+        connection
+        for connection in outgoing_connections
+        if _connection_has_filters(connection)
+        and _connection_matches_bundle(
+            connection,
+            record.product_name,
+            record.material_name,
+            record.source_block_id,
+        )
+    ]
+    if filtered_matches:
+        return filtered_matches
+
+    return [
+        connection
+        for connection in outgoing_connections
+        if not _connection_has_filters(connection)
+    ]
 
 
 def _sort_bundles(bundles: list[_Bundle]) -> list[_Bundle]:

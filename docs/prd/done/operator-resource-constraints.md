@@ -2,7 +2,9 @@
 
 Updated: 2026-06-04
 
-Status: ready-for-agent
+Status: implemented
+
+Implementation note: moved to `docs/prd/done/` on 2026-06-10 during documentation cleanup. Current short status lives in `docs/CURRENT_STATE.md`.
 
 GitHub references:
 

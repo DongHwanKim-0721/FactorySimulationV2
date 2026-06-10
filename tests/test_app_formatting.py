@@ -1,17 +1,25 @@
 from app import (
     BLOCK_TYPES,
+    App,
     CanvasView,
     PaletteView,
+    adjust_route_step_pass,
     build_monthly_input_choices,
+    collapse_route_steps,
+    expand_route_steps,
     is_limited_number_input,
     format_monthly_input_choice,
     format_monthly_tons,
+    format_hours,
     format_flow_diagram,
     format_operator_qualification_summary,
+    next_block_position,
+    route_block_summary,
     monthly_output_quantity_for_choice,
     realized_weekly_minutes_per_ea,
+    route_highlight_edges,
 )
-from engine.models import Operator, ProcessBlock, ProcessConnection
+from engine.models import Operator, ProcessBlock, ProcessConnection, Scenario
 from engine.simulation import SimulationResult
 
 
@@ -83,6 +91,94 @@ def test_monthly_production_formatting_helpers_are_readable():
     assert format_monthly_input_choice(choice) == "P1/A (2.5 kg/EA)"
     assert format_monthly_tons(12) == "12 ton"
     assert format_monthly_tons(12.345) == "12.35 ton"
+    assert format_hours(1.5) == "1.5 hr"
+    assert format_hours(0) == "0 hr"
+
+
+def test_route_block_summary_collapses_repeated_passes_and_uses_equipment_numbers():
+    blocks = [
+        ProcessBlock(id=2, type="DRAWING", x=0, y=0, equipment_number=3),
+        ProcessBlock(id=5, type="HEAT", x=0, y=0, equipment_number=1),
+    ]
+
+    summary = route_block_summary(blocks, (2, 2, 5, 99))
+
+    assert "#3 x2" in summary
+    assert "#1" in summary
+    assert "Missing #99" in summary
+
+
+def test_route_block_summary_identifies_free_blocks_by_type_number_and_name():
+    blocks = [
+        ProcessBlock(
+            id=7,
+            type="FREE",
+            x=0,
+            y=0,
+            equipment_number=2,
+            custom_name="Cooling buffer",
+        ),
+    ]
+
+    assert route_block_summary(blocks, (7,)) == "Route: Free Block #2 - Cooling buffer"
+
+
+def test_block_display_name_identifies_free_blocks_by_type_number_and_name():
+    app = App.__new__(App)
+    block = ProcessBlock(
+        id=7,
+        type="FREE",
+        x=0,
+        y=0,
+        equipment_number=2,
+        custom_name="Cooling buffer",
+    )
+
+    assert app.block_display_name(block) == "Free Block #2 - Cooling buffer"
+
+
+def test_route_step_helpers_adjust_pass_counts_without_dropping_steps():
+    steps = collapse_route_steps((2, 2, 5))
+
+    assert steps == [(2, 2), (5, 1)]
+    assert expand_route_steps(steps) == (2, 2, 5)
+    assert adjust_route_step_pass(steps, 0, 1) == [(2, 3), (5, 1)]
+    assert adjust_route_step_pass(steps, 1, -1) == [(2, 2), (5, 1)]
+
+
+def test_route_highlight_edges_are_derived_from_selected_input_only():
+    blocks = [
+        ProcessBlock(id=1, type="INPUT", x=0, y=0, route_block_ids=(3, 4)),
+        ProcessBlock(id=2, type="INPUT", x=0, y=0, route_block_ids=(4,)),
+        ProcessBlock(id=3, type="CUTTING", x=0, y=0),
+        ProcessBlock(id=4, type="HEAT", x=0, y=0),
+    ]
+
+    assert route_highlight_edges(blocks, None) == []
+    assert route_highlight_edges(blocks, 1) == [(1, 3), (3, 4)]
+    assert route_highlight_edges(blocks, 2) == [(2, 4)]
+
+
+def test_new_block_positions_wrap_into_columns_before_leaving_visible_area():
+    scenario = Scenario()
+
+    for _index in range(24):
+        x, y = next_block_position(scenario.blocks)
+        scenario.add_block("CUTTING", x=x, y=y)
+
+    assert max(block.y for block in scenario.blocks) <= 560
+    assert len({block.x for block in scenario.blocks}) > 1
+
+
+def test_app_uses_route_mode_as_soon_as_input_exists():
+    app = App.__new__(App)
+    app.scenario = Scenario()
+
+    assert app.uses_route_mode() is False
+
+    app.scenario.add_block("INPUT", x=0, y=0)
+
+    assert app.uses_route_mode() is True
 
 
 def test_monthly_input_choices_merge_same_material_name():

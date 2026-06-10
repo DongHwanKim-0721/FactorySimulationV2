@@ -56,6 +56,41 @@ def test_delete_block_cascades_connections():
     assert scenario.connections == []
 
 
+def test_blocks_auto_assign_equipment_numbers_by_type():
+    scenario = Scenario()
+    input_block = scenario.add_block("INPUT", x=0, y=0)
+    first_cutting = scenario.add_block("CUTTING", x=100, y=0)
+    second_cutting = scenario.add_block("CUTTING", x=200, y=0)
+    heat = scenario.add_block("HEAT", x=300, y=0)
+
+    assert input_block.equipment_number is None
+    assert first_cutting.equipment_number == 1
+    assert second_cutting.equipment_number == 2
+    assert heat.equipment_number == 1
+
+
+def test_duplicate_equipment_number_rejected_within_same_block_type():
+    scenario = Scenario()
+    scenario.add_block("CUTTING", x=0, y=0, equipment_number=1)
+
+    with pytest.raises(ValueError, match="Duplicate equipment number"):
+        scenario.add_block("CUTTING", x=100, y=0, equipment_number=1)
+
+    scenario.add_block("HEAT", x=200, y=0, equipment_number=1)
+
+
+def test_delete_block_removes_route_occurrences_and_marks_review_required():
+    scenario = Scenario()
+    input_block = scenario.add_block("INPUT", x=0, y=0, route_block_ids=(2, 3, 2))
+    scenario.add_block("CUTTING", x=100, y=0, block_id=2)
+    scenario.add_block("HEAT", x=200, y=0, block_id=3)
+
+    scenario.delete_block(2)
+
+    assert input_block.route_block_ids == (3,)
+    assert input_block.route_review_required is True
+
+
 def test_operator_assignment_validation_and_cascading_deletion():
     scenario = Scenario()
     scenario.add_block("INPUT", x=0, y=0, material_name="A", input_quantity=10)
@@ -147,6 +182,37 @@ def test_save_load_roundtrip_then_simulate_bundle_scenario():
         path.unlink(missing_ok=True)
 
 
+def test_save_load_roundtrip_preserves_routes_and_equipment_numbers():
+    scenario = Scenario()
+    scenario.add_block(
+        "INPUT",
+        x=0,
+        y=0,
+        product_name="P1",
+        material_name="A",
+        route_block_ids=(2, 2, 3),
+        route_review_required=True,
+    )
+    scenario.add_block("CUTTING", x=200, y=0, block_id=2, equipment_number=7)
+    scenario.add_block("HEAT", x=400, y=0, block_id=3, equipment_number=7)
+    path = Path("tests/.tmp_route_scenario.json")
+
+    try:
+        save(scenario, path)
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        loaded = load(path)
+
+        assert saved["blocks"][0]["route_block_ids"] == [2, 2, 3]
+        assert saved["blocks"][0]["route_review_required"] is True
+        assert saved["blocks"][1]["equipment_number"] == 7
+        assert loaded.blocks[0].route_block_ids == (2, 2, 3)
+        assert loaded.blocks[0].route_review_required is True
+        assert loaded.blocks[1].equipment_number == 7
+        assert loaded.blocks[2].equipment_number == 7
+    finally:
+        path.unlink(missing_ok=True)
+
+
 def test_save_load_roundtrip_preserves_operators_and_assignments():
     scenario = Scenario()
     scenario.add_block(
@@ -179,6 +245,41 @@ def test_save_load_roundtrip_preserves_operators_and_assignments():
         assert loaded.operators[0].qualified_process_types == {"CUTTING", "HEAT"}
         assert loaded.operator_assignments[0].operator_id == operator.id
         assert loaded.operator_assignments[0].block_id == 2
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def test_save_load_roundtrip_preserves_connection_routing_filters():
+    scenario = Scenario()
+    scenario.add_block(
+        "INPUT",
+        x=0,
+        y=0,
+        product_name="P1",
+        material_name="A",
+        input_quantity=10,
+    )
+    scenario.add_block("DRAWING", x=200, y=0)
+    scenario.add_connection(
+        1,
+        2,
+        product_names=("P1",),
+        material_names=("A",),
+        source_block_ids=(1,),
+    )
+    path = Path("tests/.tmp_connection_filters.json")
+
+    try:
+        save(scenario, path)
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        loaded = load(path)
+
+        assert saved["connections"][0]["product_names"] == ["P1"]
+        assert saved["connections"][0]["material_names"] == ["A"]
+        assert saved["connections"][0]["source_block_ids"] == [1]
+        assert loaded.connections[0].product_names == ("P1",)
+        assert loaded.connections[0].material_names == ("A",)
+        assert loaded.connections[0].source_block_ids == (1,)
     finally:
         path.unlink(missing_ok=True)
 
@@ -411,6 +512,46 @@ def test_save_normalizes_legacy_block_types_from_memory():
             "WORK_WAITING",
             "CORRECTION",
         ]
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def test_load_legacy_scenario_defaults_missing_route_and_equipment_fields():
+    path = Path("tests/.tmp_legacy_route_fields.json")
+    path.write_text(
+        """
+{
+  "blocks": [
+    {
+      "id": 1,
+      "type": "INPUT",
+      "x": 0,
+      "y": 0,
+      "process_time_per_ea": 30.0,
+      "concurrent_capacity": 1
+    },
+    {
+      "id": 2,
+      "type": "CUTTING",
+      "x": 100,
+      "y": 0,
+      "process_time_per_ea": 45.0,
+      "concurrent_capacity": 1
+    }
+  ],
+  "connections": []
+}
+""",
+        encoding="utf-8",
+    )
+
+    try:
+        loaded = load(path)
+
+        assert loaded.blocks[0].route_block_ids == ()
+        assert loaded.blocks[0].route_review_required is False
+        assert loaded.blocks[0].equipment_number is None
+        assert loaded.blocks[1].equipment_number == 1
     finally:
         path.unlink(missing_ok=True)
 

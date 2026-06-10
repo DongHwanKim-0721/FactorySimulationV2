@@ -1,6 +1,6 @@
 # Manual Smoke Checklist: FactorySimulation
 
-Updated: 2026-06-04
+Updated: 2026-06-09
 
 Use this checklist for manual tkinter verification after changes to `app.py`.
 
@@ -14,6 +14,26 @@ Use this checklist for manual tkinter verification after changes to `app.py`.
 - Add a 호이스트 block, edit transport quantity and move time.
 - Add, move, connect, delete blocks and connections.
 - Confirm connecting into an INPUT block shows a Korean error message.
+
+## Route-Based Material Simulation
+
+- Add multiple non-input equipment blocks and confirm each shows an equipment number.
+- Edit equipment numbers and confirm duplicate numbers within the same block type are rejected.
+- Confirm the same equipment number is allowed on different block types.
+- Add a raw material input block and edit its route using the route editor in the input settings dialog.
+- Confirm the route editor lists actual placed non-input blocks and can add/remove/reorder route steps.
+- Confirm the `+ pass` and `- pass` controls display consecutive repeated route steps as a pass count such as `x2`.
+- Save the input settings and confirm route review is cleared for that input.
+- Delete a non-input block used by an input route and confirm the route is cleaned up and review is required.
+- Run a simple input route with no process-flow connections and confirm simulation succeeds.
+- Confirm an input with a missing/empty route is rejected when route mode is active.
+- Confirm selecting an input block highlights only that input route with temporary visual lines.
+- Confirm process-to-process material connection creation is hidden in route mode, while operator assignment links still work.
+- Confirm consecutive repeated route steps appear as pass counts in route detail.
+- Confirm non-consecutive revisits appear as separate route detail steps.
+- Confirm an explicit hoist route step affects lead time and an omitted hoist does not.
+- Confirm shared equipment creates waiting time when multiple input routes use the same block.
+- Confirm result panels and playback time use hours, not minutes.
 
 ## Operator Resources
 

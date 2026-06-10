@@ -4,6 +4,7 @@ from app import (
     AnimationController,
     BundleTokenState,
     CanvasView,
+    PLAYBACK_ACTION_BUTTON_WIDTH,
     PLAYBACK_PAUSE_LABEL,
     PLAYBACK_PLAY_LABEL,
     PLAYBACK_RESET_LABEL,
@@ -242,6 +243,8 @@ def test_playback_controls_use_action_labels_with_icons():
     view.update_playback_controls()
 
     assert view.play_button.options["text"] == PLAYBACK_PAUSE_LABEL
+    assert view.play_button.options["width"] == PLAYBACK_ACTION_BUTTON_WIDTH
+    assert PLAYBACK_ACTION_BUTTON_WIDTH > 10
 
 
 def test_processing_token_position_stays_outside_block_bounds():
