@@ -4,6 +4,7 @@ from app import (
     CanvasView,
     PaletteView,
     adjust_route_step_pass,
+    append_route_selection_step,
     build_monthly_input_choices,
     collapse_route_steps,
     expand_route_steps,
@@ -18,6 +19,11 @@ from app import (
     monthly_output_quantity_for_choice,
     realized_weekly_minutes_per_ea,
     route_highlight_edges,
+    route_selection_badges,
+    route_selection_can_complete,
+    route_selection_edges,
+    move_route_selection_step,
+    remove_route_selection_step,
 )
 from engine.models import Operator, ProcessBlock, ProcessConnection, Scenario
 from engine.simulation import SimulationResult
@@ -144,6 +150,42 @@ def test_route_step_helpers_adjust_pass_counts_without_dropping_steps():
     assert expand_route_steps(steps) == (2, 2, 5)
     assert adjust_route_step_pass(steps, 0, 1) == [(2, 3), (5, 1)]
     assert adjust_route_step_pass(steps, 1, -1) == [(2, 2), (5, 1)]
+
+
+def test_route_selection_clicks_append_and_collapse_only_consecutive_repeats():
+    steps: list[tuple[int, int]] = []
+
+    steps = append_route_selection_step(steps, 2)
+    steps = append_route_selection_step(steps, 2)
+    steps = append_route_selection_step(steps, 5)
+    steps = append_route_selection_step(steps, 2)
+
+    assert steps == [(2, 2), (5, 1), (2, 1)]
+    assert expand_route_steps(steps) == (2, 2, 5, 2)
+
+
+def test_route_selection_remove_and_move_return_updated_selection():
+    steps = [(2, 1), (5, 1), (7, 1)]
+
+    moved, selected_index = move_route_selection_step(steps, 1, 1)
+    assert moved == [(2, 1), (7, 1), (5, 1)]
+    assert selected_index == 2
+
+    removed, selected_index = remove_route_selection_step(moved, selected_index)
+    assert removed == [(2, 1), (7, 1)]
+    assert selected_index == 1
+
+
+def test_route_selection_edges_and_badges_use_temporary_route_steps():
+    steps = [(2, 2), (5, 1), (2, 1)]
+
+    assert route_selection_edges(1, steps) == [(1, 2), (2, 5), (5, 2)]
+    assert route_selection_badges(steps) == [(2, "1 x2"), (5, "2"), (2, "3")]
+
+
+def test_route_selection_completion_requires_at_least_one_step():
+    assert route_selection_can_complete([]) is False
+    assert route_selection_can_complete([(2, 1)]) is True
 
 
 def test_route_highlight_edges_are_derived_from_selected_input_only():

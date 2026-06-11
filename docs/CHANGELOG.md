@@ -1,6 +1,14 @@
 # Changelog
 
-Updated: 2026-06-10
+Updated: 2026-06-11
+
+## 2026-06-11
+
+- Added canvas click route selection from the INPUT settings dialog.
+- Added a non-modal route selection panel with complete, cancel, reset, remove, up, and down controls.
+- Temporary route lines and order badges now show the in-progress route without creating process-flow connections.
+- Added helper regression tests for route selection append, pass collapse, revisit, reorder, remove, temporary edges, badges, and empty completion handling.
+- Updated manual smoke coverage for the canvas route selection workflow.
 
 ## 2026-06-10
 
@@ -20,4 +28,3 @@ Updated: 2026-06-10
 - Added operator resource constraints with qualification validation and one-operator-per-block assignment.
 - Added visual refresh and process block taxonomy.
 - Added weekly/monthly expected production based on realized simulation output.
-

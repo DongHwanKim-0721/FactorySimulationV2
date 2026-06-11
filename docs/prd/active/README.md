@@ -1,6 +1,6 @@
 # Active PRDs
 
-Updated: 2026-06-10
+Updated: 2026-06-11
 
 No active PRD is currently registered.
 
@@ -10,4 +10,3 @@ Put new not-yet-implemented PRDs in this folder. When implementation and verific
 - `docs/DECISION_LOG.md` if a durable decision changed
 - `docs/CHANGELOG.md`
 - `docs/manual-smoke-checklist.md` when manual verification changes
-

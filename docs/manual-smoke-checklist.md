@@ -1,6 +1,6 @@
 # Manual Smoke Checklist: FactorySimulation
 
-Updated: 2026-06-09
+Updated: 2026-06-11
 
 Use this checklist for manual tkinter verification after changes to `app.py`.
 
@@ -23,6 +23,15 @@ Use this checklist for manual tkinter verification after changes to `app.py`.
 - Add a raw material input block and edit its route using the route editor in the input settings dialog.
 - Confirm the route editor lists actual placed non-input blocks and can add/remove/reorder route steps.
 - Confirm the `+ pass` and `- pass` controls display consecutive repeated route steps as a pass count such as `x2`.
+- Open the INPUT settings dialog, choose Select route on canvas, and confirm product/material/quantity/time/unit weight are saved before the dialog closes.
+- In canvas route selection mode, click placed non-input blocks and confirm the temporary route panel, orange dashed lines, and order badges update.
+- Click the same block consecutively and confirm the panel/badge shows a pass count; click A -> B -> A and confirm the revisit remains a separate route step.
+- Select a route row in the panel, then remove it, move it up/down, and reset the route.
+- Confirm Complete is blocked while the temporary route is empty.
+- Confirm Cancel and Escape leave the previously saved INPUT route unchanged.
+- Confirm clicking INPUT blocks, operators, animation tokens, and empty canvas space does not mutate the temporary route.
+- Confirm double-click editing, right-click menus, dragging, and Shift connection creation do not operate while route selection mode is active.
+- Complete a non-empty route and confirm it saves to the INPUT route without creating process-flow connections.
 - Save the input settings and confirm route review is cleared for that input.
 - Delete a non-input block used by an input route and confirm the route is cleaned up and review is required.
 - Run a simple input route with no process-flow connections and confirm simulation succeeds.

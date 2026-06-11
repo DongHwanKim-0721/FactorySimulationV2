@@ -1,6 +1,6 @@
 # Agent Context
 
-Updated: 2026-06-10
+Updated: 2026-06-11
 
 Read this first when starting a new session on FactorySimulation.
 
@@ -17,6 +17,7 @@ The user wants to place the real factory equipment layout in the central diagram
 - User-visible change history: `docs/CHANGELOG.md`
 - Manual checks: `docs/manual-smoke-checklist.md`
 - Current route PRD: `docs/prd/done/route-based-material-routing.md`
+- Canvas route selection PRD: `docs/prd/done/canvas-click-route-selection.md`
 
 Historical PRDs and handoffs are preserved under `docs/prd/archive/` and `docs/handoffs/archive/`. Use them only for background unless `CURRENT_STATE.md` points to them.
 
@@ -26,6 +27,7 @@ Historical PRDs and handoffs are preserved under `docs/prd/archive/` and `docs/h
 - INPUT blocks say what raw materials enter the factory.
 - Each INPUT owns a route of actual non-input block IDs.
 - Routes are the active material-flow source of truth.
+- INPUT routes can be edited from the INPUT settings dialog by entering a canvas click selection mode.
 - Process-flow connections are legacy material-flow data and should not drive route-era simulation.
 - Operator assignments are still valid resource constraints and remain separate from material routes.
 - Hoists only affect lead time when explicitly included in a route.
@@ -52,10 +54,10 @@ Run:
 pytest -q
 ```
 
-Last known local verification on 2026-06-10:
+Last known local verification on 2026-06-11:
 
 ```text
-99 passed
+106 passed
 ```
 
 Build command used for the desktop executable:
@@ -68,7 +70,6 @@ The current executable path is `dist/FactorySimulation.exe`.
 
 ## Next Best Checks
 
-1. Run the Route-Based Material Simulation section in `docs/manual-smoke-checklist.md`.
-2. Confirm GitHub route issues can be closed, but do not close them unless the user asks.
+1. Run the Route-Based Material Simulation section in `docs/manual-smoke-checklist.md`, including the canvas route selection checks.
+2. Review GitHub issues #11-#15 for the canvas route selection PRD, but do not close them unless the user asks.
 3. If adding new production-planning scope, create a small PRD under `docs/prd/active/` and update `CURRENT_STATE.md`.
-

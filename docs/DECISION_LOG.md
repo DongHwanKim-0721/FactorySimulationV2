@@ -1,6 +1,6 @@
 # Decision Log
 
-Updated: 2026-06-10
+Updated: 2026-06-11
 
 This log captures decisions that future work should preserve. It is intentionally shorter than a PRD.
 
@@ -40,3 +40,8 @@ Weekly/monthly expected production should use the current simulation result and 
 
 Reason: the user wants practical expected output from the modeled scenario, not a bottleneck-only planning calculator.
 
+## 2026-06-11: Canvas Route Selection Is An Editing UI Only
+
+INPUT route selection may be driven by clicking placed non-input blocks on the canvas. The temporary selection lines and order badges are visual editing aids only. Completing the selection saves the route back to the INPUT block's `route_block_ids`; it does not create process-flow connections or introduce a second material-flow model.
+
+Reason: users should define routes in the same spatial layout where equipment is placed, while preserving INPUT-owned routes as the only active route-era material-flow source of truth.

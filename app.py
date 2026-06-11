@@ -90,6 +90,15 @@ class MonthlyInputChoice:
         return self.default_unit_weight_kg_per_ea
 
 
+@dataclass
+class RouteSelectionState:
+    input_block_id: int
+    route_steps: list[tuple[int, int]]
+    original_route_steps: list[tuple[int, int]]
+    selected_index: int | None = None
+    message: str = ""
+
+
 def unique_preserving_order(names: list[str]) -> tuple[str, ...]:
     seen: set[str] = set()
     unique_names: list[str] = []
@@ -235,6 +244,76 @@ def adjust_route_step_pass(
     block_id, pass_count = adjusted[step_index]
     adjusted[step_index] = (block_id, max(1, pass_count + delta))
     return adjusted
+
+
+def append_route_selection_step(
+    route_steps: list[tuple[int, int]],
+    block_id: int,
+) -> list[tuple[int, int]]:
+    updated = list(route_steps)
+    if updated and updated[-1][0] == block_id:
+        previous_block_id, previous_pass_count = updated[-1]
+        updated[-1] = (previous_block_id, previous_pass_count + 1)
+    else:
+        updated.append((block_id, 1))
+    return updated
+
+
+def remove_route_selection_step(
+    route_steps: list[tuple[int, int]],
+    step_index: int | None,
+) -> tuple[list[tuple[int, int]], int | None]:
+    if step_index is None or step_index < 0 or step_index >= len(route_steps):
+        return list(route_steps), None
+    updated = list(route_steps)
+    updated.pop(step_index)
+    if not updated:
+        return updated, None
+    return updated, min(step_index, len(updated) - 1)
+
+
+def move_route_selection_step(
+    route_steps: list[tuple[int, int]],
+    step_index: int | None,
+    delta: int,
+) -> tuple[list[tuple[int, int]], int | None]:
+    if step_index is None or step_index < 0 or step_index >= len(route_steps):
+        return list(route_steps), step_index
+    new_index = step_index + delta
+    if new_index < 0 or new_index >= len(route_steps):
+        return list(route_steps), step_index
+    updated = list(route_steps)
+    updated[step_index], updated[new_index] = updated[new_index], updated[step_index]
+    return updated, new_index
+
+
+def route_selection_edges(
+    input_block_id: int,
+    route_steps: list[tuple[int, int]],
+) -> list[tuple[int, int]]:
+    edges: list[tuple[int, int]] = []
+    previous_block_id = input_block_id
+    for block_id, _pass_count in route_steps:
+        if previous_block_id != block_id:
+            edges.append((previous_block_id, block_id))
+        previous_block_id = block_id
+    return edges
+
+
+def route_selection_badges(
+    route_steps: list[tuple[int, int]],
+) -> list[tuple[int, str]]:
+    badges: list[tuple[int, str]] = []
+    for index, (block_id, pass_count) in enumerate(route_steps, start=1):
+        label = str(index)
+        if pass_count > 1:
+            label = f"{label} x{pass_count}"
+        badges.append((block_id, label))
+    return badges
+
+
+def route_selection_can_complete(route_steps: list[tuple[int, int]]) -> bool:
+    return bool(route_steps)
 
 
 def route_highlight_edges(
@@ -702,6 +781,7 @@ class App:
         self.connection_start_kind: str | None = None
         self.connection_start_id: int | None = None
         self.selected_route_input_id: int | None = None
+        self.route_selection_state: RouteSelectionState | None = None
         self.status_var = tk.StringVar(value="준비 완료")
 
         self._create_widgets()
@@ -845,10 +925,12 @@ class App:
         self.animation.state.is_playing = False
         self.connection_start_kind = None
         self.connection_start_id = None
+        self.route_selection_state = None
         self.stop_animation_timer()
         self._refresh_sheet_tabs()
 
         if hasattr(self, "canvas_view"):
+            self.canvas_view.hide_route_selection_panel()
             self.canvas_view.redraw()
             self.canvas_view.update_playback_controls()
         if hasattr(self, "result_view"):
@@ -1297,6 +1379,162 @@ class App:
         self.canvas_view.redraw()
         self.status_var.set(f"Operator updated: {operator.name}")
 
+    def route_selection_active(self) -> bool:
+        return self.route_selection_state is not None
+
+    def start_route_selection(
+        self,
+        input_block_id: int,
+        initial_route_steps: list[tuple[int, int]] | None = None,
+    ) -> None:
+        input_block = self.find_block(input_block_id)
+        if input_block is None or input_block.type != "INPUT":
+            return
+        if not any(block.type != "INPUT" for block in self.scenario.blocks):
+            messagebox.showwarning(
+                "Route selection",
+                "Add at least one non-input process block before selecting a route.",
+            )
+            return
+
+        self.end_connection_mode()
+        original_route_steps = collapse_route_steps(input_block.route_block_ids)
+        route_steps = (
+            list(initial_route_steps)
+            if initial_route_steps is not None
+            else list(original_route_steps)
+        )
+        self.route_selection_state = RouteSelectionState(
+            input_block_id=input_block_id,
+            route_steps=route_steps,
+            original_route_steps=list(original_route_steps),
+            selected_index=len(route_steps) - 1 if route_steps else None,
+            message="Click process blocks on the canvas to build this input route.",
+        )
+        self.selected_route_input_id = input_block_id
+        self.select_animation_token(None)
+        self.canvas_view.show_route_selection_panel()
+        self.canvas_view.redraw()
+        self.status_var.set("Route selection mode: click process blocks, then complete.")
+
+    def route_selection_title(self) -> str:
+        state = self.route_selection_state
+        if state is None:
+            return "Route selection"
+        input_block = self.find_block(state.input_block_id)
+        if input_block is None:
+            return "Route selection"
+        return f"Route selection: {self.block_display_name(input_block)}"
+
+    def route_selection_step_labels(self) -> list[str]:
+        state = self.route_selection_state
+        if state is None:
+            return []
+        labels: list[str] = []
+        for index, (route_block_id, pass_count) in enumerate(state.route_steps, start=1):
+            route_ids = tuple(route_block_id for _ in range(pass_count))
+            label = route_block_summary(self.scenario.blocks, route_ids).removeprefix(
+                "Route: "
+            )
+            labels.append(f"{index}. {label}")
+        return labels
+
+    def route_selection_set_selected_index(self, index: int | None) -> None:
+        state = self.route_selection_state
+        if state is None:
+            return
+        if index is None or index < 0 or index >= len(state.route_steps):
+            state.selected_index = None
+        else:
+            state.selected_index = index
+        self.canvas_view.update_route_selection_panel()
+        self.canvas_view.redraw()
+
+    def route_selection_add_block(self, block_id: int | None) -> None:
+        state = self.route_selection_state
+        if state is None:
+            return
+        block = self.find_block(block_id) if block_id is not None else None
+        if block is None or block.type == "INPUT":
+            state.message = "Only placed non-input process blocks can be added to a route."
+            self.status_var.set(state.message)
+            self.canvas_view.update_route_selection_panel()
+            return
+        state.route_steps = append_route_selection_step(state.route_steps, block.id)
+        state.selected_index = len(state.route_steps) - 1
+        state.message = f"Added {self.block_display_name(block)} to route."
+        self.status_var.set(state.message)
+        self.canvas_view.update_route_selection_panel()
+        self.canvas_view.redraw()
+
+    def route_selection_remove_selected(self) -> None:
+        state = self.route_selection_state
+        if state is None:
+            return
+        state.route_steps, state.selected_index = remove_route_selection_step(
+            state.route_steps,
+            state.selected_index,
+        )
+        state.message = "Route step removed." if state.route_steps else "Route is empty."
+        self.status_var.set(state.message)
+        self.canvas_view.update_route_selection_panel()
+        self.canvas_view.redraw()
+
+    def route_selection_move_selected(self, delta: int) -> None:
+        state = self.route_selection_state
+        if state is None:
+            return
+        state.route_steps, state.selected_index = move_route_selection_step(
+            state.route_steps,
+            state.selected_index,
+            delta,
+        )
+        state.message = "Route step moved."
+        self.status_var.set(state.message)
+        self.canvas_view.update_route_selection_panel()
+        self.canvas_view.redraw()
+
+    def route_selection_reset(self) -> None:
+        state = self.route_selection_state
+        if state is None:
+            return
+        state.route_steps = []
+        state.selected_index = None
+        state.message = "Route cleared. Click process blocks to rebuild it."
+        self.status_var.set(state.message)
+        self.canvas_view.update_route_selection_panel()
+        self.canvas_view.redraw()
+
+    def complete_route_selection(self) -> None:
+        state = self.route_selection_state
+        if state is None:
+            return
+        if not route_selection_can_complete(state.route_steps):
+            state.message = "Route must contain at least one process block."
+            self.status_var.set(state.message)
+            self.canvas_view.update_route_selection_panel()
+            messagebox.showwarning("Route selection", state.message)
+            return
+        input_block = self.find_block(state.input_block_id)
+        if input_block is None or input_block.type != "INPUT":
+            self.cancel_route_selection()
+            return
+        input_block.route_block_ids = expand_route_steps(state.route_steps)
+        input_block.route_review_required = False
+        self.route_selection_state = None
+        self.mark_structure_changed("Route changed; run the simulation again.")
+        self.canvas_view.hide_route_selection_panel()
+        self.canvas_view.redraw()
+        self.status_var.set("Route selection saved.")
+
+    def cancel_route_selection(self) -> None:
+        if self.route_selection_state is None:
+            return
+        self.route_selection_state = None
+        self.canvas_view.hide_route_selection_panel()
+        self.canvas_view.redraw()
+        self.status_var.set("Route selection canceled.")
+
     def edit_block_parameters(self, block_id: int) -> None:
         block = self.find_block(block_id)
         if not block:
@@ -1491,6 +1729,63 @@ class App:
                 route_steps[:] = adjust_route_step_pass(route_steps, index, delta)
                 refresh_route_listbox(index)
 
+            def save_input_fields_for_route_selection() -> bool:
+                try:
+                    input_quantity = int(input_quantity_var.get())
+                    input_time = float(input_time_var.get())
+                    unit_weight = float(unit_weight_var.get())
+                except tk.TclError:
+                    messagebox.showerror(
+                        "Input error",
+                        "Quantity, input time, and unit weight must be numeric.",
+                    )
+                    return False
+
+                product_name = product_name_var.get().strip()
+                material_name = material_name_var.get().strip()
+                if not product_name:
+                    messagebox.showerror("Input error", "Product name is required.")
+                    return False
+                if not material_name:
+                    messagebox.showerror("Input error", "Material name is required.")
+                    return False
+                if input_quantity < 0 or input_time < 0:
+                    messagebox.showerror(
+                        "Input error",
+                        "Input quantity and input time must be 0 or greater.",
+                    )
+                    return False
+                if unit_weight <= 0:
+                    messagebox.showerror(
+                        "Input error",
+                        "Unit weight must be greater than 0.",
+                    )
+                    return False
+
+                block.product_name = product_name
+                block.material_name = material_name
+                block.input_quantity = input_quantity
+                block.input_time = input_time
+                block.unit_weight_kg_per_ea = unit_weight
+                self.mark_structure_changed(
+                    "Input fields changed; run the simulation again."
+                )
+                self.canvas_view.redraw()
+                return True
+
+            def start_canvas_route_selection() -> None:
+                if not route_candidates:
+                    messagebox.showwarning(
+                        "Route selection",
+                        "Add at least one non-input process block before selecting a route.",
+                    )
+                    return
+                if not save_input_fields_for_route_selection():
+                    return
+                initial_route_steps = list(route_steps)
+                dialog.destroy()
+                self.start_route_selection(block.id, initial_route_steps)
+
             candidate_box = ttk.Combobox(
                 route_editor,
                 textvariable=selected_candidate_var,
@@ -1523,6 +1818,11 @@ class App:
             ttk.Button(route_editor, text="Down", command=lambda: move_route_step(1)).grid(
                 row=2, column=5, sticky="ew", pady=(6, 0), padx=(2, 0)
             )
+            ttk.Button(
+                route_editor,
+                text="Select route on canvas",
+                command=start_canvas_route_selection,
+            ).grid(row=3, column=0, columnspan=6, sticky="ew", pady=(8, 0))
             refresh_route_listbox()
             row += 1
         elif block.type == "HOIST":
@@ -1740,6 +2040,9 @@ class App:
         self.status_var.set(f"{start_name}에서 시작한 연결이 취소되었습니다.")
 
     def handle_escape(self, event: object | None = None) -> None:
+        if self.route_selection_state is not None:
+            self.cancel_route_selection()
+            return
         if self.connection_start_id is not None:
             self.cancel_connection(event)
             return
@@ -2037,6 +2340,8 @@ class App:
         self._bind_active_sheet()
         self.connection_start_kind = None
         self.connection_start_id = None
+        self.route_selection_state = None
+        self.canvas_view.hide_route_selection_panel()
         self.canvas_view.redraw()
         self.result_view.clear()
         self.mark_structure_changed("초기화되어 시뮬레이션 실행이 필요합니다.")
@@ -2436,6 +2741,7 @@ class CanvasView:
         self.drag_y = 0.0
         self.current_tokens: list[BundleTokenState] = []
         self._updating_controls = False
+        self._updating_route_selection_panel = False
 
         self.frame = ttk.LabelFrame(
             parent,
@@ -2506,6 +2812,85 @@ class CanvasView:
             width=16,
         ).grid(row=0, column=5)
 
+        self.route_selection_frame = ttk.Frame(
+            self.frame,
+            padding=(8, 6),
+            style="Panel.TFrame",
+        )
+        self.route_selection_frame.grid(
+            row=2,
+            column=0,
+            columnspan=2,
+            sticky="ew",
+            pady=(0, 8),
+        )
+        self.route_selection_frame.grid_remove()
+        self.route_selection_frame.columnconfigure(1, weight=1)
+        self.route_selection_title_var = tk.StringVar(value="Route selection")
+        self.route_selection_message_var = tk.StringVar(value="")
+        ttk.Label(
+            self.route_selection_frame,
+            textvariable=self.route_selection_title_var,
+            font=("Arial", 10, "bold"),
+        ).grid(row=0, column=0, columnspan=7, sticky="w")
+        ttk.Label(
+            self.route_selection_frame,
+            textvariable=self.route_selection_message_var,
+            foreground="#475569",
+        ).grid(row=1, column=0, columnspan=7, sticky="w", pady=(2, 4))
+        self.route_selection_listbox = tk.Listbox(
+            self.route_selection_frame,
+            height=3,
+            exportselection=False,
+        )
+        self.route_selection_listbox.grid(
+            row=2,
+            column=0,
+            columnspan=7,
+            sticky="ew",
+            pady=(0, 6),
+        )
+        self.route_selection_listbox.bind(
+            "<<ListboxSelect>>",
+            self.on_route_selection_listbox_select,
+        )
+        self.route_selection_complete_button = ttk.Button(
+            self.route_selection_frame,
+            text="Complete",
+            command=self.controller.complete_route_selection,
+        )
+        self.route_selection_complete_button.grid(
+            row=3,
+            column=0,
+            sticky="ew",
+            padx=(0, 3),
+        )
+        ttk.Button(
+            self.route_selection_frame,
+            text="Cancel",
+            command=self.controller.cancel_route_selection,
+        ).grid(row=3, column=1, sticky="ew", padx=3)
+        ttk.Button(
+            self.route_selection_frame,
+            text="Reset",
+            command=self.controller.route_selection_reset,
+        ).grid(row=3, column=2, sticky="ew", padx=3)
+        ttk.Button(
+            self.route_selection_frame,
+            text="Remove",
+            command=self.controller.route_selection_remove_selected,
+        ).grid(row=3, column=3, sticky="ew", padx=3)
+        ttk.Button(
+            self.route_selection_frame,
+            text="Up",
+            command=lambda: self.controller.route_selection_move_selected(-1),
+        ).grid(row=3, column=4, sticky="ew", padx=3)
+        ttk.Button(
+            self.route_selection_frame,
+            text="Down",
+            command=lambda: self.controller.route_selection_move_selected(1),
+        ).grid(row=3, column=5, sticky="ew", padx=3)
+
         self.canvas = tk.Canvas(
             self.frame,
             bg="#eef3f8",
@@ -2521,10 +2906,10 @@ class CanvasView:
             scrollregion=(0, 0, 2000, 2000),
         )
 
-        self.canvas.grid(row=2, column=0, sticky="nsew")
-        h_scroll.grid(row=3, column=0, sticky="ew")
-        v_scroll.grid(row=2, column=1, sticky="ns")
-        self.frame.grid_rowconfigure(2, weight=1)
+        self.canvas.grid(row=3, column=0, sticky="nsew")
+        h_scroll.grid(row=4, column=0, sticky="ew")
+        v_scroll.grid(row=3, column=1, sticky="ns")
+        self.frame.grid_rowconfigure(3, weight=1)
         self.frame.grid_columnconfigure(0, weight=1)
 
         self.canvas.bind("<Button-1>", self.on_click)
@@ -2592,6 +2977,47 @@ class CanvasView:
         )
         add_button.pack(side=tk.LEFT)
 
+    def show_route_selection_panel(self) -> None:
+        self.route_selection_frame.grid()
+        self.update_route_selection_panel()
+        self.canvas.config(cursor="hand2", bg="#f8fafc")
+
+    def hide_route_selection_panel(self) -> None:
+        self.route_selection_frame.grid_remove()
+        self.route_selection_listbox.delete(0, tk.END)
+        self.canvas.config(cursor="cross", bg="#eef3f8")
+
+    def update_route_selection_panel(self) -> None:
+        state = self.controller.route_selection_state
+        if state is None:
+            self.hide_route_selection_panel()
+            return
+        self._updating_route_selection_panel = True
+        self.route_selection_title_var.set(self.controller.route_selection_title())
+        self.route_selection_message_var.set(state.message)
+        self.route_selection_listbox.delete(0, tk.END)
+        for label in self.controller.route_selection_step_labels():
+            self.route_selection_listbox.insert(tk.END, label)
+        if state.selected_index is not None and state.route_steps:
+            index = min(max(state.selected_index, 0), len(state.route_steps) - 1)
+            self.route_selection_listbox.selection_set(index)
+            self.route_selection_listbox.activate(index)
+        self.route_selection_complete_button.configure(
+            state=(
+                tk.NORMAL
+                if route_selection_can_complete(state.route_steps)
+                else tk.DISABLED
+            )
+        )
+        self._updating_route_selection_panel = False
+
+    def on_route_selection_listbox_select(self, _event: tk.Event) -> None:
+        if self._updating_route_selection_panel:
+            return
+        selection = self.route_selection_listbox.curselection()
+        selected_index = int(selection[0]) if selection else None
+        self.controller.route_selection_set_selected_index(selected_index)
+
     def redraw(self) -> None:
         xview = self.canvas.xview()
         yview = self.canvas.yview()
@@ -2604,12 +3030,14 @@ class CanvasView:
                 self.draw_connection(connection)
         else:
             self.draw_route_highlights()
+        self.draw_route_selection_lines()
         for assignment in self.controller.scenario.operator_assignments:
             self.draw_operator_assignment(assignment)
         for block in self.controller.scenario.blocks:
             self.draw_block(block)
         for operator in self.controller.scenario.operators:
             self.draw_operator(operator)
+        self.draw_route_selection_badges()
         self.draw_animation_tokens()
         self.canvas.xview_moveto(xview[0])
         self.canvas.yview_moveto(yview[0])
@@ -2754,6 +3182,64 @@ class CanvasView:
                 smooth=True,
                 dash=(3, 5),
                 tags=f"route_{self.controller.selected_route_input_id}",
+            )
+
+    def draw_route_selection_lines(self) -> None:
+        state = getattr(self.controller, "route_selection_state", None)
+        if state is None:
+            return
+        for from_block_id, to_block_id in route_selection_edges(
+            state.input_block_id,
+            state.route_steps,
+        ):
+            from_block = self.controller.find_block(from_block_id)
+            to_block = self.controller.find_block(to_block_id)
+            if from_block is None or to_block is None:
+                continue
+            line_points, _delete_position = self._connection_path(from_block, to_block)
+            self.canvas.create_line(
+                *line_points,
+                arrow=tk.LAST,
+                fill="#f97316",
+                width=3,
+                smooth=True,
+                dash=(8, 4),
+                tags="route_selection_line",
+            )
+
+    def draw_route_selection_badges(self) -> None:
+        state = getattr(self.controller, "route_selection_state", None)
+        if state is None:
+            return
+        offsets_by_block: dict[int, int] = {}
+        selected_index = state.selected_index
+        for index, (block_id, label) in enumerate(route_selection_badges(state.route_steps)):
+            block = self.controller.find_block(block_id)
+            if block is None:
+                continue
+            offset = offsets_by_block.get(block_id, 0)
+            offsets_by_block[block_id] = offset + 1
+            x = block.x + block.width - 20
+            y = block.y + 12 + offset * 20
+            selected = index == selected_index
+            fill = "#f97316" if selected else "#0ea5e9"
+            self.canvas.create_rectangle(
+                x - 18,
+                y - 10,
+                x + 18,
+                y + 10,
+                fill=fill,
+                outline="white",
+                width=2,
+                tags="route_selection_badge",
+            )
+            self.canvas.create_text(
+                x,
+                y,
+                text=label,
+                font=("Arial", 8, "bold"),
+                fill="white",
+                tags="route_selection_badge",
             )
 
     def draw_operator(self, operator: Operator) -> None:
@@ -3141,6 +3627,12 @@ class CanvasView:
         x = self.canvas.canvasx(event.x)
         y = self.canvas.canvasy(event.y)
 
+        if self.controller.route_selection_active():
+            self.drag_block_id = None
+            self.drag_operator_id = None
+            self.controller.route_selection_add_block(self._block_at(x, y))
+            return
+
         connection_id = self._connection_delete_at(x, y)
         if connection_id is not None:
             self.controller.delete_connection(connection_id)
@@ -3189,6 +3681,8 @@ class CanvasView:
         self.controller.select_animation_token(None)
 
     def on_drag(self, event: tk.Event) -> None:
+        if self.controller.route_selection_active():
+            return
         if self.drag_block_id is None and self.drag_operator_id is None:
             return
 
@@ -3209,6 +3703,11 @@ class CanvasView:
         self.drag_operator_id = None
 
     def on_double_click(self, event: tk.Event) -> None:
+        if self.controller.route_selection_active():
+            self.controller.status_var.set(
+                "Finish or cancel route selection before editing objects."
+            )
+            return
         x = self.canvas.canvasx(event.x)
         y = self.canvas.canvasy(event.y)
         connection_id = self._connection_at(x, y)
@@ -3224,6 +3723,11 @@ class CanvasView:
             self.controller.edit_operator(operator_id)
 
     def on_right_click(self, event: tk.Event) -> None:
+        if self.controller.route_selection_active():
+            self.controller.status_var.set(
+                "Finish or cancel route selection before opening menus."
+            )
+            return
         x = self.canvas.canvasx(event.x)
         y = self.canvas.canvasy(event.y)
         block_id = self._block_at(x, y)
