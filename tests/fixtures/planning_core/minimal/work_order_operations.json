@@ -1,0 +1,83 @@
+[
+  {
+    "import_batch_id": "WO-HIST-2026-W26",
+    "operation_date": "2026-06-25",
+    "domain_source": "유압",
+    "shift_or_team": "A",
+    "work_order_no": "WO-HYD-001",
+    "process_sequence": 10,
+    "process_group": "CUTTING",
+    "process_name": "절단",
+    "operation_sequence": 1,
+    "equipment_name": "유압 절단기 1",
+    "item_code": "HYD-100",
+    "item_name": "유압 실린더 A",
+    "instruction_quantity": 120,
+    "input_quantity": 120,
+    "output_quantity": 118,
+    "defect_quantity": 2,
+    "unit": "EA",
+    "first_input_material": "SCM440",
+    "source_row_id": "wo-row-8",
+    "raw_values": {
+      "작업장": "유압",
+      "작업지시": "WO-HYD-001",
+      "공정": "절단",
+      "설비": "유압 절단기 1"
+    }
+  },
+  {
+    "import_batch_id": "WO-HIST-2026-W26",
+    "operation_date": "2026-06-25",
+    "domain_source": "STS",
+    "shift_or_team": "B",
+    "work_order_no": "WO-STS-001",
+    "process_sequence": 10,
+    "process_group": "POLISHING",
+    "process_name": "연마",
+    "operation_sequence": 1,
+    "equipment_name": "STS 연마기 1",
+    "item_code": "STS-200",
+    "item_name": "STS 배관 B",
+    "instruction_quantity": 80,
+    "input_quantity": 80,
+    "output_quantity": 80,
+    "defect_quantity": 0,
+    "unit": "EA",
+    "first_input_material": "STS304",
+    "source_row_id": "wo-row-9",
+    "raw_values": {
+      "작업장": "STS",
+      "작업지시": "WO-STS-001",
+      "공정": "연마",
+      "설비": "STS 연마기 1"
+    }
+  },
+  {
+    "import_batch_id": "WO-HIST-2026-W26",
+    "operation_date": "2026-06-26",
+    "domain_source": "이형재",
+    "shift_or_team": "A",
+    "work_order_no": "WO-SHP-001",
+    "process_sequence": 10,
+    "process_group": "FORMING",
+    "process_name": "성형",
+    "operation_sequence": 1,
+    "equipment_name": "이형재 성형기 1",
+    "item_code": "SHP-300",
+    "item_name": "이형재 프로파일 C",
+    "instruction_quantity": 45,
+    "input_quantity": 45,
+    "output_quantity": 44,
+    "defect_quantity": 1,
+    "unit": "EA",
+    "first_input_material": "AL6061",
+    "source_row_id": "wo-row-10",
+    "raw_values": {
+      "작업장": "이형재",
+      "작업지시": "WO-SHP-001",
+      "공정": "성형",
+      "설비": "이형재 성형기 1"
+    }
+  }
+]

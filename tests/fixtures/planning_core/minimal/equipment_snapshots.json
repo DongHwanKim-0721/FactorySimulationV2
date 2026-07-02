@@ -1,0 +1,71 @@
+[
+  {
+    "snapshot_batch_id": "EQ-2026-07-01",
+    "snapshot_at": "2026-07-01T08:00:00",
+    "domain_source": "유압",
+    "process_group": "CUTTING",
+    "equipment_id": "HYD-CUT-01",
+    "equipment_name": "유압 절단기 1",
+    "equipment_status": "가동",
+    "is_available": true,
+    "unavailable_reason": "",
+    "current_work_order_no": "WO-HYD-001",
+    "current_process_sequence": "10",
+    "current_process_name": "절단",
+    "current_item_code": "HYD-100",
+    "current_item_name": "유압 실린더 A",
+    "elapsed_or_remaining_time": "02:10 elapsed",
+    "source_row_id": "eq-row-4",
+    "raw_values": {
+      "작업장": "유압",
+      "설비명": "유압 절단기 1",
+      "상태": "가동"
+    }
+  },
+  {
+    "snapshot_batch_id": "EQ-2026-07-01",
+    "snapshot_at": "2026-07-01T08:00:00",
+    "domain_source": "STS",
+    "process_group": "POLISHING",
+    "equipment_id": "STS-POL-01",
+    "equipment_name": "STS 연마기 1",
+    "equipment_status": "점검",
+    "is_available": false,
+    "unavailable_reason": "정기 점검",
+    "current_work_order_no": "",
+    "current_process_sequence": "",
+    "current_process_name": "",
+    "current_item_code": "",
+    "current_item_name": "",
+    "elapsed_or_remaining_time": "",
+    "source_row_id": "eq-row-5",
+    "raw_values": {
+      "작업장": "STS",
+      "설비명": "STS 연마기 1",
+      "상태": "점검"
+    }
+  },
+  {
+    "snapshot_batch_id": "EQ-2026-07-01",
+    "snapshot_at": "2026-07-01T08:00:00",
+    "domain_source": "이형재",
+    "process_group": "FORMING",
+    "equipment_id": "SHP-FRM-01",
+    "equipment_name": "이형재 성형기 1",
+    "equipment_status": "가동",
+    "is_available": true,
+    "unavailable_reason": "",
+    "current_work_order_no": "WO-SHP-001",
+    "current_process_sequence": "10",
+    "current_process_name": "성형",
+    "current_item_code": "SHP-300",
+    "current_item_name": "이형재 프로파일 C",
+    "elapsed_or_remaining_time": "00:40 remaining",
+    "source_row_id": "eq-row-6",
+    "raw_values": {
+      "작업장": "이형재",
+      "설비명": "이형재 성형기 1",
+      "상태": "가동"
+    }
+  }
+]

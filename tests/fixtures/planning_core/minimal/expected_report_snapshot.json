@@ -1,0 +1,64 @@
+{
+  "ai_role": "DRAFTS_AND_RECOMMENDATIONS_ONLY",
+  "calculation_authority": "DETERMINISTIC_ENGINE",
+  "contract_counts": {
+    "domains": 3,
+    "equipment_snapshots": 3,
+    "production_plan_lines": 3,
+    "recipe_headers": 3,
+    "recipe_steps": 3,
+    "scenario_definitions": 2,
+    "work_order_operations": 3
+  },
+  "deferred_capabilities": [
+    "DUE_DATE_SCHEDULING",
+    "STANDARD_TIME_CALCULATION"
+  ],
+  "domain_labels_by_code": {
+    "HYDRAULIC": "유압",
+    "SHAPED_MATERIAL": "이형재",
+    "STS": "STS"
+  },
+  "fixture_contract_version": 1,
+  "planning_boundary": "PRODUCTION_PLANNING_CORE_ONLY",
+  "prototype_dependency": "NONE",
+  "scenario_execution": {
+    "draft_only": [
+      "SCN-AI-DRAFT-REVIEW"
+    ],
+    "executable": [
+      "SCN-SHORTEST-PROXY"
+    ]
+  },
+  "source_row_ids": {
+    "equipment_snapshots": [
+      "eq-row-4",
+      "eq-row-5",
+      "eq-row-6"
+    ],
+    "production_plan_lines": [
+      "plan-row-2",
+      "plan-row-3",
+      "plan-row-4"
+    ],
+    "recipe_headers": [
+      "recipe-header-row-2",
+      "recipe-header-row-3",
+      "recipe-header-row-4"
+    ],
+    "recipe_steps": [
+      "recipe-step-row-2",
+      "recipe-step-row-3",
+      "recipe-step-row-4"
+    ],
+    "scenario_definitions": [
+      "scenario-row-2",
+      "scenario-row-3"
+    ],
+    "work_order_operations": [
+      "wo-row-8",
+      "wo-row-9",
+      "wo-row-10"
+    ]
+  }
+}

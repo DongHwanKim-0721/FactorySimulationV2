@@ -1,0 +1,74 @@
+[
+  {
+    "domain_source": "유압",
+    "recipe_id": "R-HYD-100",
+    "recipe_version": "1",
+    "step_no": 10,
+    "process_group": "CUTTING",
+    "process_name": "절단",
+    "process_code": "CUT",
+    "is_required": true,
+    "repeat_count": 1,
+    "preferred_equipment": "유압 절단기 1",
+    "alternate_equipment_names": [],
+    "input_basis": "EA",
+    "quantity_factor": 1,
+    "weight_factor": 0,
+    "constraints": {},
+    "notes": "no standard time in slice 1",
+    "source_row_id": "recipe-step-row-2",
+    "raw_values": {
+      "작업장": "유압",
+      "공정": "절단",
+      "설비": "유압 절단기 1"
+    }
+  },
+  {
+    "domain_source": "STS",
+    "recipe_id": "R-STS-200",
+    "recipe_version": "1",
+    "step_no": 10,
+    "process_group": "POLISHING",
+    "process_name": "연마",
+    "process_code": "POL",
+    "is_required": true,
+    "repeat_count": 1,
+    "preferred_equipment": "STS 연마기 1",
+    "alternate_equipment_names": [],
+    "input_basis": "EA",
+    "quantity_factor": 1,
+    "weight_factor": 0,
+    "constraints": {},
+    "notes": "no standard time in slice 1",
+    "source_row_id": "recipe-step-row-3",
+    "raw_values": {
+      "작업장": "STS",
+      "공정": "연마",
+      "설비": "STS 연마기 1"
+    }
+  },
+  {
+    "domain_source": "이형재",
+    "recipe_id": "R-SHP-300",
+    "recipe_version": "1",
+    "step_no": 10,
+    "process_group": "FORMING",
+    "process_name": "성형",
+    "process_code": "FRM",
+    "is_required": true,
+    "repeat_count": 1,
+    "preferred_equipment": "이형재 성형기 1",
+    "alternate_equipment_names": [],
+    "input_basis": "EA",
+    "quantity_factor": 1,
+    "weight_factor": 0,
+    "constraints": {},
+    "notes": "no standard time in slice 1",
+    "source_row_id": "recipe-step-row-4",
+    "raw_values": {
+      "작업장": "이형재",
+      "공정": "성형",
+      "설비": "이형재 성형기 1"
+    }
+  }
+]

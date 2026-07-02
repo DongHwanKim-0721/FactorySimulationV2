@@ -1,0 +1,20 @@
+[
+  {
+    "domain_code": "HYDRAULIC",
+    "domain_label": "유압",
+    "substitution_policy": "NO_CROSS_DOMAIN_SUBSTITUTION",
+    "source_value": "유압"
+  },
+  {
+    "domain_code": "STS",
+    "domain_label": "STS",
+    "substitution_policy": "NO_CROSS_DOMAIN_SUBSTITUTION",
+    "source_value": "STS"
+  },
+  {
+    "domain_code": "SHAPED_MATERIAL",
+    "domain_label": "이형재",
+    "substitution_policy": "NO_CROSS_DOMAIN_SUBSTITUTION",
+    "source_value": "이형재"
+  }
+]
