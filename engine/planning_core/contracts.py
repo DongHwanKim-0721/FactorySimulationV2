@@ -21,6 +21,7 @@ class ProductionPlanLine:
     plan_period: str
     plan_type: str
     domain_code: str
+    domain_label: str
     customer_name: str
     customer_order_ref: str
     order_type: str
