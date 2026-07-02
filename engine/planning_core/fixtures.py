@@ -14,23 +14,7 @@ from .contracts import (
     ScenarioDefinition,
     WorkOrderOperation,
 )
-
-
-DOMAIN_LABEL_BY_CODE = {
-    "HYDRAULIC": "유압",
-    "STS": "STS",
-    "SHAPED_MATERIAL": "이형재",
-}
-
-DOMAIN_CODE_BY_SOURCE = {
-    "유압": "HYDRAULIC",
-    "HYDRAULIC": "HYDRAULIC",
-    "STS": "STS",
-    "이형재": "SHAPED_MATERIAL",
-    "SHAPED_MATERIAL": "SHAPED_MATERIAL",
-    "SHAPED MATERIAL": "SHAPED_MATERIAL",
-    "SHAPED-MATERIAL": "SHAPED_MATERIAL",
-}
+from .domains import DOMAIN_LABEL_BY_CODE, normalize_domain_code
 
 
 @dataclass(frozen=True)
@@ -75,16 +59,6 @@ def load_fixture_set(fixture_dir: str | Path) -> PlanningFixtureSet:
     )
 
 
-def normalize_domain_code(source_value: str) -> str:
-    key = str(source_value).strip()
-    domain_code = DOMAIN_CODE_BY_SOURCE.get(key)
-    if domain_code is None:
-        domain_code = DOMAIN_CODE_BY_SOURCE.get(key.upper().replace("_", " "))
-    if domain_code is None:
-        raise ValueError(f"Unknown planning domain: {source_value}")
-    return domain_code
-
-
 def _domain_from_row(row: dict[str, Any]) -> PlanningDomain:
     domain_code = normalize_domain_code(row.get("domain_code") or row["source_value"])
     return PlanningDomain(
@@ -101,6 +75,12 @@ def _production_plan_line_from_row(row: dict[str, Any]) -> ProductionPlanLine:
         plan_period=str(row["plan_period"]),
         plan_type=str(row["plan_type"]),
         domain_code=_domain_code_from_row(row),
+        domain_label=str(
+            row.get("domain_label")
+            or row.get("domain_source")
+            or row.get("domain_code")
+            or ""
+        ),
         customer_name=str(row["customer_name"]),
         customer_order_ref=str(row["customer_order_ref"]),
         order_type=str(row["order_type"]),
