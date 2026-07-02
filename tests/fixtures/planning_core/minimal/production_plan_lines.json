@@ -1,0 +1,71 @@
+[
+  {
+    "plan_batch_id": "PLAN-2026-07-M",
+    "plan_period": "2026-07",
+    "plan_type": "MONTHLY",
+    "domain_source": "유압",
+    "customer_name": "한빛산업",
+    "customer_order_ref": "전화요청-7월-A",
+    "order_type": "내수",
+    "product_group": "CYLINDER",
+    "item_code": "HYD-100",
+    "item_name": "유압 실린더 A",
+    "order_quantity": 120,
+    "weight": 3400.5,
+    "unit": "EA",
+    "source_row_id": "plan-row-2",
+    "raw_values": {
+      "작업장": "유압",
+      "고객": "한빛산업",
+      "고객주문참조": "전화요청-7월-A",
+      "품목코드": "HYD-100",
+      "수량": "120"
+    }
+  },
+  {
+    "plan_batch_id": "PLAN-2026-07-M",
+    "plan_period": "2026-07",
+    "plan_type": "MONTHLY",
+    "domain_source": "STS",
+    "customer_name": "대성금속",
+    "customer_order_ref": "STS-긴급-01",
+    "order_type": "수출",
+    "product_group": "PIPE",
+    "item_code": "STS-200",
+    "item_name": "STS 배관 B",
+    "order_quantity": 80,
+    "weight": 2100,
+    "unit": "EA",
+    "source_row_id": "plan-row-3",
+    "raw_values": {
+      "작업장": "STS",
+      "고객": "대성금속",
+      "고객주문참조": "STS-긴급-01",
+      "품목코드": "STS-200",
+      "수량": "80"
+    }
+  },
+  {
+    "plan_batch_id": "PLAN-2026-07-M",
+    "plan_period": "2026-07",
+    "plan_type": "MONTHLY",
+    "domain_source": "이형재",
+    "customer_name": "세림소재",
+    "customer_order_ref": "메일요청-형재-12",
+    "order_type": "내수",
+    "product_group": "PROFILE",
+    "item_code": "SHP-300",
+    "item_name": "이형재 프로파일 C",
+    "order_quantity": 45,
+    "weight": 980,
+    "unit": "EA",
+    "source_row_id": "plan-row-4",
+    "raw_values": {
+      "작업장": "이형재",
+      "고객": "세림소재",
+      "고객주문참조": "메일요청-형재-12",
+      "품목코드": "SHP-300",
+      "수량": "45"
+    }
+  }
+]

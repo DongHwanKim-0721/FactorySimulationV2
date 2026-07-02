@@ -1,0 +1,56 @@
+[
+  {
+    "scenario_id": "SCN-SHORTEST-PROXY",
+    "scenario_name": "Shortest lead-time proxy baseline",
+    "scenario_source": "USER_AUTHORED",
+    "scope": "WHOLE_FACTORY",
+    "included_plan_batch_ids": ["PLAN-2026-07-M"],
+    "domain_filters": ["유압", "STS", "이형재"],
+    "priority_rule": "SHORTEST_LEAD_TIME_PROXY",
+    "proxy_weights": {
+      "process_count": 1,
+      "repeat_count": 1,
+      "equipment_unavailable": 3,
+      "quantity": 0.1,
+      "weight": 0.1
+    },
+    "equipment_overrides": {},
+    "priority_overrides": {},
+    "recipe_overrides": {},
+    "output_requirements": [
+      "RECIPE_COVERAGE_REPORT",
+      "LOAD_SUMMARY",
+      "BOTTLENECK_RISK_REPORT"
+    ],
+    "engine_version": "planning-core-fixture-v1",
+    "is_executable": true,
+    "source_row_id": "scenario-row-2",
+    "raw_values": {
+      "시나리오": "baseline",
+      "규칙": "SHORTEST_LEAD_TIME_PROXY"
+    }
+  },
+  {
+    "scenario_id": "SCN-AI-DRAFT-REVIEW",
+    "scenario_name": "AI draft requires user confirmation",
+    "scenario_source": "AI_DRAFT",
+    "scope": "HYDRAULIC",
+    "included_plan_batch_ids": ["PLAN-2026-07-M"],
+    "domain_filters": ["유압"],
+    "priority_rule": "SHORTEST_LEAD_TIME_PROXY",
+    "proxy_weights": {
+      "process_count": 1
+    },
+    "equipment_overrides": {},
+    "priority_overrides": {},
+    "recipe_overrides": {},
+    "output_requirements": ["RECIPE_COVERAGE_REPORT"],
+    "engine_version": "planning-core-fixture-v1",
+    "is_executable": false,
+    "source_row_id": "scenario-row-3",
+    "raw_values": {
+      "시나리오": "AI draft",
+      "검증상태": "draft only"
+    }
+  }
+]
