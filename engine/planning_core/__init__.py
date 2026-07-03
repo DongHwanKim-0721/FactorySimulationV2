@@ -14,6 +14,13 @@ from .equipment_snapshot_import import (
     import_equipment_snapshot_rows,
 )
 from .fixtures import PlanningFixtureSet, load_fixture_set
+from .load_risk import (
+    BottleneckRiskRow,
+    LoadAndRiskReport,
+    LoadSummaryRow,
+    LoadTotalRow,
+    generate_load_and_risk_report,
+)
 from .production_plan_import import (
     ProductionPlanImportResult,
     ProductionPlanValidationError,
@@ -44,6 +51,7 @@ __all__ = [
     "EquipmentSnapshotImportResult",
     "EquipmentSnapshotValidationError",
     "extract_recipe_candidates",
+    "generate_load_and_risk_report",
     "import_equipment_snapshot_rows",
     "import_work_order_operation_rows",
     "import_production_plan_rows",
@@ -59,6 +67,9 @@ __all__ = [
     "RecipeStep",
     "ScenarioDefinition",
     "load_fixture_set",
+    "LoadAndRiskReport",
+    "LoadSummaryRow",
+    "LoadTotalRow",
     "match_plan_lines_to_recipes",
     "MissingRecipeReportRow",
     "render_fixture_report_snapshot",
@@ -69,4 +80,5 @@ __all__ = [
     "WorkOrderValidationError",
     "TbdRecipeImportResult",
     "TbdRecipeValidationError",
+    "BottleneckRiskRow",
 ]
