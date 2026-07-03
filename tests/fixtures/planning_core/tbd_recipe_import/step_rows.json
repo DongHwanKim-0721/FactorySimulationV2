@@ -1,0 +1,34 @@
+[
+  {
+    "source_row_id": "tbd-step-row-2",
+    "domain": "SHAPED_MATERIAL",
+    "recipe_id": "TBD-SHP-300",
+    "recipe_version": "1",
+    "step_no": "10",
+    "process_group": "FORMING",
+    "process_name": "Form",
+    "process_code": "FRM",
+    "repeat_count": "2",
+    "preferred_equipment": "SHP-FRM-01",
+    "alternate_equipment_names": "SHP-FRM-02; SHP-FRM-03",
+    "input_basis": "EA",
+    "quantity_factor": "1",
+    "weight_factor": "0"
+  },
+  {
+    "source_row_id": "tbd-step-row-3",
+    "domain": "SHAPED_MATERIAL",
+    "recipe_id": "TBD-SHP-300",
+    "recipe_version": "1",
+    "step_no": "20",
+    "process_group": "CUTTING",
+    "process_name": "Cut",
+    "process_code": "CUT",
+    "repeat_count": "1",
+    "preferred_equipment": "SHP-CUT-01",
+    "alternate_equipment_names": "",
+    "input_basis": "EA",
+    "quantity_factor": "1",
+    "weight_factor": "0"
+  }
+]

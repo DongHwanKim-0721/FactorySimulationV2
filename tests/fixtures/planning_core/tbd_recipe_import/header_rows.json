@@ -1,0 +1,14 @@
+[
+  {
+    "source_row_id": "tbd-header-row-2",
+    " domain ": "SHAPED_MATERIAL",
+    "recipe_id": "TBD-SHP-300",
+    "recipe_version": "1",
+    "product_group": "PROFILE",
+    " item_code ": "SHP-300",
+    "item_name": "Shaped profile C",
+    "representative_spec": "300C",
+    "first_input_material": "AL6061",
+    "notes": "planner draft"
+  }
+]
