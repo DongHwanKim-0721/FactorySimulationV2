@@ -8,6 +8,11 @@ from .contracts import (
     WorkOrderOperation,
 )
 from .domains import normalize_domain_code
+from .equipment_snapshot_import import (
+    EquipmentSnapshotImportResult,
+    EquipmentSnapshotValidationError,
+    import_equipment_snapshot_rows,
+)
 from .fixtures import PlanningFixtureSet, load_fixture_set
 from .production_plan_import import (
     ProductionPlanImportResult,
@@ -25,7 +30,10 @@ from .work_order_import import (
 
 __all__ = [
     "EquipmentSnapshot",
+    "EquipmentSnapshotImportResult",
+    "EquipmentSnapshotValidationError",
     "extract_recipe_candidates",
+    "import_equipment_snapshot_rows",
     "import_work_order_operation_rows",
     "import_production_plan_rows",
     "normalize_domain_code",
