@@ -23,12 +23,16 @@ from .load_risk import (
 )
 from .planning_workbook_io import (
     PLANNING_WORKBOOK_SHEETS,
+    REPORT_WORKBOOK_SHEETS,
     PlanningWorkbookError,
     PlanningWorkbookRows,
     PlanningWorkbookRunConfig,
     PlanningWorkbookValidationError,
+    load_xlsx_sheet_rows,
     load_planning_workbook_rows,
     render_planning_workbook_report_snapshot,
+    write_planning_run_report_xlsx,
+    write_planning_workbook_report_xlsx,
 )
 from .production_plan_import import (
     ProductionPlanImportResult,
@@ -71,6 +75,7 @@ __all__ = [
     "extract_recipe_candidates",
     "generate_load_and_risk_report",
     "import_equipment_snapshot_rows",
+    "load_xlsx_sheet_rows",
     "load_planning_workbook_rows",
     "import_work_order_operation_rows",
     "import_production_plan_rows",
@@ -102,6 +107,7 @@ __all__ = [
     "render_fixture_report_snapshot",
     "render_planning_run_report_snapshot",
     "render_planning_workbook_report_snapshot",
+    "REPORT_WORKBOOK_SHEETS",
     "RecipeMatchingResult",
     "RecipePlanMatch",
     "WorkOrderOperation",
@@ -114,4 +120,6 @@ __all__ = [
     "compare_scenario_reports",
     "ScenarioComparisonResult",
     "ScenarioComparisonRow",
+    "write_planning_run_report_xlsx",
+    "write_planning_workbook_report_xlsx",
 ]

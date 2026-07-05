@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from posixpath import dirname, normpath
 from typing import Any, Mapping
 from urllib.parse import unquote
-from zipfile import BadZipFile, ZipFile
+from xml.sax.saxutils import escape
+from zipfile import BadZipFile, ZIP_DEFLATED, ZipFile
 import xml.etree.ElementTree as ET
 
 from .equipment_snapshot_import import import_equipment_snapshot_rows
@@ -34,6 +36,76 @@ PLANNING_WORKBOOK_SHEETS = {
     "scenario_priority_override_rows": "Priority_Overrides",
     "scenario_recipe_override_rows": "Recipe_Overrides",
     "scenario_output_request_rows": "Output_Requests",
+}
+
+REPORT_WORKBOOK_SHEETS = {
+    "run_metadata": "Run_Metadata",
+    "recipe_matching": "Recipe_Matching",
+    "tbd_report": "TBD_Report",
+    "load_summary": "Load_Summary",
+    "bottleneck_risk": "Bottleneck_Risk",
+    "scenario_comparison": "Scenario_Comparison",
+}
+
+REPORT_WORKBOOK_HEADERS = {
+    REPORT_WORKBOOK_SHEETS["run_metadata"]: ("key", "value"),
+    REPORT_WORKBOOK_SHEETS["recipe_matching"]: (
+        "plan_source_row_id",
+        "domain_code",
+        "item_code",
+        "status",
+        "selected_recipe_id",
+        "candidate_recipe_ids",
+        "deprecated_recipe_ids",
+        "tbd_recipe_ids",
+        "reason",
+    ),
+    REPORT_WORKBOOK_SHEETS["tbd_report"]: (
+        "plan_source_row_id",
+        "plan_batch_id",
+        "domain_code",
+        "item_code",
+        "item_name",
+        "customer_name",
+        "customer_order_ref",
+        "reason",
+    ),
+    REPORT_WORKBOOK_SHEETS["load_summary"]: (
+        "scenario_id",
+        "domain_code",
+        "process_group",
+        "equipment_group",
+        "recipe_id",
+        "recipe_step_no",
+        "plan_source_row_ids",
+        "order_quantity_total",
+        "weight_total",
+        "proxy_load_units",
+    ),
+    REPORT_WORKBOOK_SHEETS["bottleneck_risk"]: (
+        "scenario_id",
+        "domain_code",
+        "process_group",
+        "equipment_group",
+        "proxy_load_units",
+        "risk_level",
+        "risk_score",
+        "signals",
+    ),
+    REPORT_WORKBOOK_SHEETS["scenario_comparison"]: (
+        "rank",
+        "scenario_id",
+        "scenario_name",
+        "priority_rule",
+        "deterministic_score",
+        "missing_recipe_count",
+        "ambiguous_recipe_count",
+        "unplannable_line_count",
+        "risk_score_total",
+        "bottleneck_risk_signals",
+        "ranking_reasons",
+        "ai_explanation",
+    ),
 }
 
 
@@ -86,7 +158,7 @@ class PlanningWorkbookValidationError(ValueError):
 
 
 def load_planning_workbook_rows(workbook_path: str | Path) -> PlanningWorkbookRows:
-    sheet_rows = _read_xlsx_sheet_tables(Path(workbook_path))
+    sheet_rows = load_xlsx_sheet_rows(workbook_path)
     missing_sheet_names = [
         sheet_name
         for sheet_name in PLANNING_WORKBOOK_SHEETS.values()
@@ -127,6 +199,10 @@ def load_planning_workbook_rows(workbook_path: str | Path) -> PlanningWorkbookRo
             PLANNING_WORKBOOK_SHEETS["scenario_output_request_rows"]
         ],
     )
+
+
+def load_xlsx_sheet_rows(workbook_path: str | Path) -> dict[str, tuple[dict[str, Any], ...]]:
+    return _read_xlsx_sheet_tables(Path(workbook_path))
 
 
 def render_planning_workbook_report_snapshot(
@@ -205,6 +281,95 @@ def render_planning_workbook_report_snapshot(
         scenario_reports=scenario_reports,
         scenario_comparison=scenario_comparison,
     )
+
+
+def write_planning_workbook_report_xlsx(
+    workbook_path: str | Path,
+    output_path: str | Path,
+    *,
+    config: PlanningWorkbookRunConfig,
+) -> None:
+    snapshot = render_planning_workbook_report_snapshot(workbook_path, config=config)
+    write_planning_run_report_xlsx(snapshot, output_path)
+
+
+def write_planning_run_report_xlsx(
+    report_snapshot_json: str,
+    output_path: str | Path,
+) -> None:
+    report = json.loads(report_snapshot_json)
+    sheets = _report_workbook_rows(report)
+    _write_xlsx_sheet_tables(Path(output_path), sheets, REPORT_WORKBOOK_HEADERS)
+
+
+def _report_workbook_rows(report: Mapping[str, Any]) -> dict[str, tuple[dict[str, Any], ...]]:
+    scenario_reports = report["scenario_reports"]
+    scenario_comparison = report["scenario_comparison"]
+    return {
+        REPORT_WORKBOOK_SHEETS["run_metadata"]: _run_metadata_rows(report),
+        REPORT_WORKBOOK_SHEETS["recipe_matching"]: tuple(
+            dict(row) for row in report["recipe_matching"]["matches"]
+        ),
+        REPORT_WORKBOOK_SHEETS["tbd_report"]: tuple(
+            dict(row) for row in report["recipe_matching"]["tbd_report_rows"]
+        ),
+        REPORT_WORKBOOK_SHEETS["load_summary"]: tuple(
+            _with_scenario_id(scenario_id, row)
+            for scenario_id, scenario_report in sorted(scenario_reports.items())
+            for row in scenario_report["load_summary_rows"]
+        ),
+        REPORT_WORKBOOK_SHEETS["bottleneck_risk"]: tuple(
+            _with_scenario_id(scenario_id, row)
+            for scenario_id, scenario_report in sorted(scenario_reports.items())
+            for row in scenario_report["bottleneck_risks"]
+        ),
+        REPORT_WORKBOOK_SHEETS["scenario_comparison"]: tuple(
+            _scenario_comparison_export_row(row)
+            for row in scenario_comparison["ranked_scenarios"]
+        ),
+    }
+
+
+def _run_metadata_rows(report: Mapping[str, Any]) -> tuple[dict[str, Any], ...]:
+    scenario_comparison = report["scenario_comparison"]
+    metadata = {
+        "ai_role": report["ai_role"],
+        "calculation_authority": report["calculation_authority"],
+        "deferred_capabilities": report["deferred_capabilities"],
+        "engine_version": scenario_comparison["engine_version"],
+        "fixture_contract_version": report["fixture_contract_version"],
+        "planning_boundary": report["planning_boundary"],
+        "prototype_dependency": report["prototype_dependency"],
+        "skipped_scenario_ids": scenario_comparison["skipped_scenario_ids"],
+    }
+    return tuple(
+        {"key": key, "value": _cell_text(value)}
+        for key, value in sorted(metadata.items())
+    )
+
+
+def _with_scenario_id(scenario_id: str, row: Mapping[str, Any]) -> dict[str, Any]:
+    result = {"scenario_id": scenario_id}
+    result.update(row)
+    return result
+
+
+def _scenario_comparison_export_row(row: Mapping[str, Any]) -> dict[str, Any]:
+    metrics = row["deterministic_metrics"]
+    return {
+        "rank": row["rank"],
+        "scenario_id": row["scenario_id"],
+        "scenario_name": row["scenario_name"],
+        "priority_rule": row["priority_rule"],
+        "deterministic_score": row["deterministic_score"],
+        "missing_recipe_count": row["missing_recipe_count"],
+        "ambiguous_recipe_count": row["ambiguous_recipe_count"],
+        "unplannable_line_count": row["unplannable_line_count"],
+        "risk_score_total": metrics.get("risk_score_total", ""),
+        "bottleneck_risk_signals": row["bottleneck_risk_signals"],
+        "ranking_reasons": row["ranking_reasons"],
+        "ai_explanation": row["ai_explanation"],
+    }
 
 
 def _raise_for_import_errors(errors_by_stage: Mapping[str, tuple[object, ...]]) -> None:
@@ -374,3 +539,155 @@ def _resolve_part_name(base_part_name: str, target: str) -> str:
     if target.startswith("/"):
         return target.lstrip("/")
     return normpath(f"{dirname(base_part_name)}/{target}")
+
+
+def _write_xlsx_sheet_tables(
+    workbook_path: Path,
+    sheets: Mapping[str, tuple[dict[str, Any], ...]],
+    headers_by_sheet: Mapping[str, tuple[str, ...]],
+) -> None:
+    sheet_names = list(sheets.keys())
+    with ZipFile(workbook_path, "w", ZIP_DEFLATED) as archive:
+        archive.writestr("[Content_Types].xml", _content_types_xml(len(sheet_names)))
+        archive.writestr("_rels/.rels", _root_rels_xml())
+        archive.writestr("xl/workbook.xml", _workbook_xml(sheet_names))
+        archive.writestr("xl/_rels/workbook.xml.rels", _workbook_rels_xml(sheet_names))
+
+        for sheet_index, sheet_name in enumerate(sheet_names, start=1):
+            archive.writestr(
+                f"xl/worksheets/sheet{sheet_index}.xml",
+                _worksheet_xml(
+                    headers_by_sheet[sheet_name],
+                    sheets[sheet_name],
+                ),
+            )
+
+
+def _content_types_xml(sheet_count: int) -> str:
+    overrides = "".join(
+        (
+            f'<Override PartName="/xl/worksheets/sheet{index}.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.'
+            'spreadsheetml.worksheet+xml"/>'
+        )
+        for index in range(1, sheet_count + 1)
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" '
+        'ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '<Override PartName="/xl/workbook.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.'
+        'spreadsheetml.sheet.main+xml"/>'
+        f"{overrides}"
+        "</Types>"
+    )
+
+
+def _root_rels_xml() -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Id="rId1" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+        'Target="xl/workbook.xml"/>'
+        "</Relationships>"
+    )
+
+
+def _workbook_xml(sheet_names: list[str]) -> str:
+    sheets_xml = "".join(
+        (
+            f'<sheet name="{_xml_attr(sheet_name)}" sheetId="{index}" '
+            f'r:id="rId{index}"/>'
+        )
+        for index, sheet_name in enumerate(sheet_names, start=1)
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        f"<sheets>{sheets_xml}</sheets>"
+        "</workbook>"
+    )
+
+
+def _workbook_rels_xml(sheet_names: list[str]) -> str:
+    relationships = "".join(
+        (
+            f'<Relationship Id="rId{index}" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+            f'Target="worksheets/sheet{index}.xml"/>'
+        )
+        for index, _ in enumerate(sheet_names, start=1)
+    )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        f"{relationships}"
+        "</Relationships>"
+    )
+
+
+def _worksheet_xml(
+    headers: tuple[str, ...],
+    rows: tuple[dict[str, Any], ...],
+) -> str:
+    row_xml = [_xlsx_row_xml(1, headers)]
+    for row_index, row in enumerate(rows, start=2):
+        row_xml.append(
+            _xlsx_row_xml(row_index, tuple(row.get(header, "") for header in headers))
+        )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        f"<sheetData>{''.join(row_xml)}</sheetData>"
+        "</worksheet>"
+    )
+
+
+def _xlsx_row_xml(row_index: int, values: tuple[Any, ...]) -> str:
+    cells = "".join(
+        _xlsx_cell_xml(row_index, column_index, value)
+        for column_index, value in enumerate(values, start=1)
+    )
+    return f'<row r="{row_index}">{cells}</row>'
+
+
+def _xlsx_cell_xml(row_index: int, column_index: int, value: Any) -> str:
+    reference = f"{_column_name(column_index)}{row_index}"
+    return (
+        f'<c r="{reference}" t="inlineStr">'
+        f"<is><t>{_xml_text(_cell_text(value))}</t></is>"
+        "</c>"
+    )
+
+
+def _column_name(column_index: int) -> str:
+    name = ""
+    while column_index:
+        column_index, remainder = divmod(column_index - 1, 26)
+        name = chr(ord("A") + remainder) + name
+    return name
+
+
+def _cell_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (list, tuple)):
+        return "; ".join(_cell_text(item) for item in value)
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return str(value)
+
+
+def _xml_text(value: Any) -> str:
+    return escape("" if value is None else str(value))
+
+
+def _xml_attr(value: Any) -> str:
+    return escape(str(value), {'"': "&quot;"})

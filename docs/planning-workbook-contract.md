@@ -3,7 +3,7 @@
 Status: ACTIVE
 Updated: 2026-07-06
 
-This document defines the first executable Excel workbook surface for the production-planning core. The workbook is an input adapter only: it feeds the deterministic planning pipeline that already imports plan rows, historical work orders, equipment snapshots, T.B.D recipes, and user-authored scenarios.
+This document defines the first executable Excel workbook surface for the production-planning core. The input workbook feeds the deterministic planning pipeline that already imports plan rows, historical work orders, equipment snapshots, T.B.D recipes, and user-authored scenarios. The CLI can write either the deterministic JSON snapshot or a planner-facing Excel report workbook derived from that same snapshot.
 
 The workbook does not introduce due-date scheduling, standard-time calculation, AI calculation authority, or route/canvas planning-source behavior.
 
@@ -129,11 +129,35 @@ python -m engine.planning_core.cli run-workbook .\planning-input.xlsx `
 
 Use `--out -` to write the report JSON to stdout.
 
+Run the same workbook and write an Excel report workbook:
+
+```powershell
+python -m engine.planning_core.cli run-workbook .\planning-input.xlsx `
+  --out .\planning-run-report.xlsx `
+  --plan-batch-id PLAN-2026-07-M `
+  --plan-period 2026-07 `
+  --plan-type MONTHLY `
+  --work-order-import-batch-id WO-HISTORY-2026-06 `
+  --equipment-snapshot-batch-id EQ-SNAPSHOT-2026-07-01 `
+  --equipment-snapshot-at 2026-07-01T08:00:00 `
+  --tbd-import-batch-id TBD-2026-07 `
+  --engine-version planning-core-cli-v1
+```
+
 ## Output Contract
 
-The CLI writes the same deterministic planning-run report snapshot shape produced by `render_planning_run_report_snapshot`.
+When `--out` ends in `.json` or any non-`.xlsx` extension, the CLI writes the same deterministic planning-run report snapshot shape produced by `render_planning_run_report_snapshot`.
 
-The report includes:
+When `--out` ends in `.xlsx`, the CLI writes a report workbook with these sheets:
+
+- `Run_Metadata`
+- `Recipe_Matching`
+- `TBD_Report`
+- `Load_Summary`
+- `Bottleneck_Risk`
+- `Scenario_Comparison`
+
+Both output formats include:
 
 - recipe matching status counts and T.B.D report rows
 - load summary rows
@@ -149,4 +173,4 @@ The report includes:
 - standard-time calculation
 - AI as calculation truth
 - route/canvas prototype as planning source of truth
-- Excel output workbook generation
+- changing the input workbook as part of report generation

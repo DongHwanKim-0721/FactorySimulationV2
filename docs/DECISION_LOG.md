@@ -22,6 +22,12 @@ The first real user-facing run surface reads a `.xlsx` planning workbook, conver
 
 Reason: this keeps Excel IO thin, preserves deterministic report shape as the product boundary, and avoids adding UI or scheduling assumptions before the planning report contract is stable.
 
+## 2026-07-06: Report Workbooks Are Derived From The JSON Snapshot
+
+The Excel report workbook export is derived from the deterministic planning-run JSON snapshot instead of recalculating planning results separately. Its sheets expose run metadata, recipe matching, T.B.D rows, load summary, bottleneck risk, and scenario comparison.
+
+Reason: JSON remains the audit-stable report contract while the Excel workbook becomes a planner-facing presentation surface. This avoids divergent report calculations.
+
 ## 2026-07-01: Route/Canvas Prototype Is Frozen
 
 The implemented Tkinter route/canvas simulator is frozen as a working prototype, reference implementation, and demo. Future product work should not keep extending the manual route editor unless the user explicitly asks for prototype maintenance.

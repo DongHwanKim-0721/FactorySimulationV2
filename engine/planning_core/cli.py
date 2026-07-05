@@ -10,6 +10,7 @@ from .planning_workbook_io import (
     PlanningWorkbookRunConfig,
     PlanningWorkbookValidationError,
     render_planning_workbook_report_snapshot,
+    write_planning_run_report_xlsx,
 )
 
 
@@ -31,13 +32,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
     run_workbook = subparsers.add_parser(
         "run-workbook",
-        help="Read a planning workbook and write a deterministic report JSON.",
+        help="Read a planning workbook and write a deterministic report.",
     )
     run_workbook.add_argument("workbook", help="Input planning workbook .xlsx path.")
     run_workbook.add_argument(
         "--out",
         required=True,
-        help="Output report JSON path, or '-' for stdout.",
+        help="Output report path. Use .xlsx for an Excel workbook, or '-' for JSON stdout.",
     )
     run_workbook.add_argument("--plan-batch-id", required=True)
     run_workbook.add_argument("--plan-period", required=True)
@@ -83,7 +84,11 @@ def _write_report(output_path: str, report_json: str) -> None:
     if output_path == "-":
         print(report_json, end="")
         return
-    Path(output_path).write_text(report_json, encoding="utf-8")
+    path = Path(output_path)
+    if path.suffix.lower() == ".xlsx":
+        write_planning_run_report_xlsx(report_json, path)
+        return
+    path.write_text(report_json, encoding="utf-8")
 
 
 if __name__ == "__main__":
