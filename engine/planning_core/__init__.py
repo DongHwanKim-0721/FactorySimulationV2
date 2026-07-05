@@ -33,6 +33,15 @@ from .recipe_matching import (
     match_plan_lines_to_recipes,
 )
 from .reports import render_fixture_report_snapshot
+from .scenario_planning import (
+    ScenarioComparisonResult,
+    ScenarioComparisonRow,
+    ScenarioValidationError,
+    ScenarioWorkbookImportResult,
+    built_in_scenario_templates,
+    compare_scenario_reports,
+    import_scenario_workbook_rows,
+)
 from .tbd_recipe_import import (
     TbdRecipeImportResult,
     TbdRecipeValidationError,
@@ -55,6 +64,7 @@ __all__ = [
     "import_equipment_snapshot_rows",
     "import_work_order_operation_rows",
     "import_production_plan_rows",
+    "import_scenario_workbook_rows",
     "import_tbd_recipe_rows",
     "normalize_domain_code",
     "PlanningDomain",
@@ -66,6 +76,8 @@ __all__ = [
     "RecipeCandidateExtractionResult",
     "RecipeStep",
     "ScenarioDefinition",
+    "ScenarioValidationError",
+    "ScenarioWorkbookImportResult",
     "load_fixture_set",
     "LoadAndRiskReport",
     "LoadSummaryRow",
@@ -81,4 +93,8 @@ __all__ = [
     "TbdRecipeImportResult",
     "TbdRecipeValidationError",
     "BottleneckRiskRow",
+    "built_in_scenario_templates",
+    "compare_scenario_reports",
+    "ScenarioComparisonResult",
+    "ScenarioComparisonRow",
 ]
