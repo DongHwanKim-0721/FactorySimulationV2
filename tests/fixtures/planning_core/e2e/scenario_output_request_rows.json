@@ -1,0 +1,18 @@
+[
+  {
+    "scenario_id": "SCN-BASE",
+    "output_requirement": "LOAD_SUMMARY"
+  },
+  {
+    "scenario_id": "SCN-BASE",
+    "output_requirement": "BOTTLENECK_RISK_REPORT"
+  },
+  {
+    "scenario_id": "SCN-HYD-CUT-DOWN",
+    "output_requirement": "LOAD_SUMMARY"
+  },
+  {
+    "scenario_id": "SCN-HYD-CUT-DOWN",
+    "output_requirement": "BOTTLENECK_RISK_REPORT"
+  }
+]

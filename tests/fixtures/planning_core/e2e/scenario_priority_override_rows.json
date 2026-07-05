@@ -1,0 +1,8 @@
+[
+  {
+    "source_row_id": "scenario-priority-row-2",
+    "scenario_id": "SCN-BASE",
+    "customer_name": "Acme",
+    "priority_boost": "1"
+  }
+]

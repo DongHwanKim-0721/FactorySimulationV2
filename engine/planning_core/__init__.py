@@ -21,6 +21,15 @@ from .load_risk import (
     LoadTotalRow,
     generate_load_and_risk_report,
 )
+from .planning_workbook_io import (
+    PLANNING_WORKBOOK_SHEETS,
+    PlanningWorkbookError,
+    PlanningWorkbookRows,
+    PlanningWorkbookRunConfig,
+    PlanningWorkbookValidationError,
+    load_planning_workbook_rows,
+    render_planning_workbook_report_snapshot,
+)
 from .production_plan_import import (
     ProductionPlanImportResult,
     ProductionPlanValidationError,
@@ -32,7 +41,7 @@ from .recipe_matching import (
     RecipePlanMatch,
     match_plan_lines_to_recipes,
 )
-from .reports import render_fixture_report_snapshot
+from .reports import render_fixture_report_snapshot, render_planning_run_report_snapshot
 from .scenario_planning import (
     ScenarioComparisonResult,
     ScenarioComparisonRow,
@@ -62,13 +71,19 @@ __all__ = [
     "extract_recipe_candidates",
     "generate_load_and_risk_report",
     "import_equipment_snapshot_rows",
+    "load_planning_workbook_rows",
     "import_work_order_operation_rows",
     "import_production_plan_rows",
     "import_scenario_workbook_rows",
     "import_tbd_recipe_rows",
     "normalize_domain_code",
+    "PLANNING_WORKBOOK_SHEETS",
     "PlanningDomain",
     "PlanningFixtureSet",
+    "PlanningWorkbookError",
+    "PlanningWorkbookRows",
+    "PlanningWorkbookRunConfig",
+    "PlanningWorkbookValidationError",
     "ProductionPlanImportResult",
     "ProductionPlanLine",
     "ProductionPlanValidationError",
@@ -85,6 +100,8 @@ __all__ = [
     "match_plan_lines_to_recipes",
     "MissingRecipeReportRow",
     "render_fixture_report_snapshot",
+    "render_planning_run_report_snapshot",
+    "render_planning_workbook_report_snapshot",
     "RecipeMatchingResult",
     "RecipePlanMatch",
     "WorkOrderOperation",

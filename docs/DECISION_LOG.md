@@ -1,8 +1,66 @@
 # Decision Log
 
-Updated: 2026-06-11
+Updated: 2026-07-06
 
 This log captures decisions that future work should preserve. It is intentionally shorter than a PRD.
+
+## 2026-07-06: Initial Planning-Core MVP Is Complete
+
+The first production-planning MVP package (#16-#22) is implemented and merged. The completed core covers normalized contracts, production-plan import, historical work-order recipe candidates, equipment snapshots, same-domain recipe matching, T.B.D reporting, load/risk proxy reporting, and user-authored scenario comparison.
+
+Reason: the codebase now has enough deterministic planning-core behavior to stop adding isolated model slices and start stabilizing the visible planning-run workflow.
+
+## 2026-07-06: End-To-End Fixture Reports Are The Next Stabilization Layer
+
+Before adding real Excel workbook IO, CLI commands, or a planning-core UI, the repo should keep a deterministic end-to-end fixture report that proves raw planning rows can flow through import, recipe matching, load/risk reporting, and scenario comparison.
+
+Reason: the report shape is the bridge between engine internals and future user-facing surfaces. Fixing it first reduces churn when Excel and UI entry points arrive.
+
+## 2026-07-01: Route/Canvas Prototype Is Frozen
+
+The implemented Tkinter route/canvas simulator is frozen as a working prototype, reference implementation, and demo. Future product work should not keep extending the manual route editor unless the user explicitly asks for prototype maintenance.
+
+Reason: the real product need has shifted from hand-built equipment routes to production planning from imported plan, recipe, work-order, and equipment data.
+
+## 2026-07-01: Production Planning Core Is The New Product Direction
+
+The next product contract starts from monthly/weekly production plans, recipe DB records, historical work-order routing imports, equipment master/current snapshots, and Excel T.B.D recipe tables. Manual canvas routes are not the future source of truth for monthly planning.
+
+Reason: planning users need load, bottleneck, missing-recipe, and comparison-scenario outputs from operational planning data, not only a spatial route simulation.
+
+## 2026-07-01: Work Centers Are Separate Planning Domains
+
+Hydraulic (`유압`), STS, and shaped-material (`이형재`) work centers must be modeled as separate planning domains. A whole-factory scenario may compare or aggregate them, but recipe lookup, equipment matching, and capacity assumptions should decompose by work center. Cross-work-center substitution is not allowed unless explicitly configured later.
+
+Reason: each work center has distinct recipe/equipment meaning. A shared generic pool would create false feasibility.
+
+## 2026-07-01: Recipe DB Grows From History And T.B.D Recipes
+
+Historical work-order routing imports should produce recipe candidates. Users confirm, revise, deprecate, or add missing recipes through a controlled Excel T.B.D recipe format.
+
+Reason: the first system should bootstrap from real execution history while keeping human control over uncertain or missing product/process knowledge.
+
+## 2026-07-01: Due Dates And Standard Times Are Later Phases
+
+The initial planning core must not pretend that due dates or standard process times are available. It should support later addition of those fields, but early ranking should use a shortest lead-time proxy.
+
+Reason: available data can support relative planning signals earlier than precise schedule commitments.
+
+## 2026-07-01: Users Can Define Comparison Scenarios
+
+Scenario definitions should be explicit user-authored planning inputs. Built-in defaults can include shortest lead-time proxy, heavy-weight-first, customer-priority, equipment-unavailable, and bottleneck-avoidance rules, but the user should be able to write alternatives directly.
+
+Reason: scenario comparison is the planning workflow. AI recommendations are useful only when the user can inspect and change the assumptions.
+
+## 2026-07-01: AI Advises, Deterministic Engine Verifies
+
+AI may draft recipes, scenario rules, summaries, and recommendations. It must not be the authority for calculation correctness. Deterministic engine logic must produce the load summaries, missing-recipe counts, bottleneck risk signals, and scenario comparison outputs.
+
+Reason: planning decisions need repeatable, auditable calculations.
+
+## Frozen Prototype Decisions
+
+The following decisions remain valid for the frozen route/canvas prototype and reference PRDs. They should not be confused with the new production-planning core contract.
 
 ## 2026-06-10: Layout And Route Are Separate Concepts
 

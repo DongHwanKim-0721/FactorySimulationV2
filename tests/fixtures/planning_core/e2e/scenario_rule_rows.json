@@ -1,0 +1,20 @@
+[
+  {
+    "source_row_id": "scenario-rule-row-2",
+    "scenario_id": "SCN-BASE",
+    "priority_rule": "SHORTEST_LEAD_TIME_PROXY",
+    "proxy_weights": "process_count=1;equipment_unavailable=3"
+  },
+  {
+    "source_row_id": "scenario-rule-row-3",
+    "scenario_id": "SCN-HYD-CUT-DOWN",
+    "priority_rule": "EQUIPMENT_UNAVAILABLE",
+    "proxy_weights": "equipment_unavailable=5;process_count=1"
+  },
+  {
+    "source_row_id": "scenario-rule-row-4",
+    "scenario_id": "SCN-AI-DRAFT",
+    "priority_rule": "BOTTLENECK_AVOIDANCE",
+    "proxy_weights": "bottleneck_risk=5"
+  }
+]
