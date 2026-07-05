@@ -16,6 +16,12 @@ Before adding real Excel workbook IO, CLI commands, or a planning-core UI, the r
 
 Reason: the report shape is the bridge between engine internals and future user-facing surfaces. Fixing it first reduces churn when Excel and UI entry points arrive.
 
+## 2026-07-06: Workbook-To-JSON CLI Is The First Executable Planning Surface
+
+The first real user-facing run surface reads a `.xlsx` planning workbook, converts each required sheet into the existing row-dict importer inputs, and writes the deterministic planning-run report JSON. Runtime metadata such as plan batch, plan period, equipment snapshot batch, snapshot timestamp, T.B.D import batch, and engine version is supplied by CLI arguments rather than inferred silently from workbook cells.
+
+Reason: this keeps Excel IO thin, preserves deterministic report shape as the product boundary, and avoids adding UI or scheduling assumptions before the planning report contract is stable.
+
 ## 2026-07-01: Route/Canvas Prototype Is Frozen
 
 The implemented Tkinter route/canvas simulator is frozen as a working prototype, reference implementation, and demo. Future product work should not keep extending the manual route editor unless the user explicitly asks for prototype maintenance.

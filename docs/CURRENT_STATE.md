@@ -32,8 +32,10 @@ The planning core currently includes:
 - load summary and bottleneck-risk proxy reports without standard-time claims
 - user-authored scenario workbook normalization, built-in templates, AI-draft gating, and deterministic scenario comparison
 - deterministic end-to-end planning-run fixture reporting that chains raw fixture rows through import, matching, load/risk reporting, and scenario comparison
+- real `.xlsx` workbook row extraction for the same planning-run report shape
+- CLI execution for `workbook.xlsx -> planning-run-report.json`
 
-The next product question is which user-facing run surface should come after the fixture report shape: real Excel workbook IO, a CLI entry point, or a planning-core UI.
+The next product question is which output surface should come after workbook-to-JSON execution: an Excel report workbook, a sample/template workbook artifact, or a planning-core UI.
 
 ## Current Implemented Prototype
 
@@ -57,6 +59,7 @@ Treat this behavior as REFERENCE unless the user explicitly asks for prototype m
 - `docs/prd/active/production-planning-pivot.md`: active product/data contract for the production-planning pivot.
 - `docs/prd/active/production-planning-mvp-slices.md`: completed implementation sequence for the first production-planning MVP.
 - `docs/prd/active/production-planning-issue-drafts.md`: published and completed GitHub issue record for production-planning MVP issues #16-#22.
+- `docs/planning-workbook-contract.md`: executable workbook sheet and CLI contract.
 
 GitHub issues #11-#15 have been implemented locally for the route/canvas prototype but should not be closed automatically unless the user asks.
 
@@ -85,7 +88,7 @@ Last local automated verification for the combined frozen prototype and planning
 
 ```text
 pytest -q
-134 passed
+137 passed
 ```
 
 The desktop executable was rebuilt with:
