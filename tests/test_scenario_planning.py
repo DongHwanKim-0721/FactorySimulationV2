@@ -115,6 +115,98 @@ def test_invalid_scenario_workbook_rows_report_errors_before_execution():
     assert "SCN-MISSING-RULE" in result.errors[0].message
 
 
+def test_invalid_scenario_rule_weights_report_errors_before_execution():
+    result = import_scenario_workbook_rows(
+        header_rows=[
+            {
+                "scenario_id": "SCN-BAD-WEIGHT",
+                "scenario_name": "Bad Weight",
+                "scenario_source": "USER_AUTHORED",
+                "scope": "WHOLE_FACTORY",
+            }
+        ],
+        rule_rows=[
+            {
+                "source_row_id": "scenario-rule-row-2",
+                "scenario_id": "SCN-BAD-WEIGHT",
+                "priority_rule": "SHORTEST_LEAD_TIME_PROXY",
+                "proxy_weights": "process_count=fast",
+            }
+        ],
+        equipment_override_rows=[],
+        priority_override_rows=[],
+        recipe_override_rows=[],
+        output_request_rows=[],
+        engine_version="planning-core-test-v1",
+    )
+
+    assert result.scenario_definitions == ()
+    assert len(result.errors) == 1
+    assert result.errors[0].source_row_id == "scenario-rule-row-2"
+    assert result.errors[0].field == "proxy_weights"
+    assert "fast" in result.errors[0].message
+
+
+def test_invalid_scenario_override_rows_report_errors_without_aborting_import():
+    result = import_scenario_workbook_rows(
+        header_rows=[
+            {
+                "scenario_id": "SCN-BASE",
+                "scenario_name": "Baseline",
+                "scenario_source": "USER_AUTHORED",
+                "scope": "WHOLE_FACTORY",
+            }
+        ],
+        rule_rows=[
+            {
+                "scenario_id": "SCN-BASE",
+                "priority_rule": "SHORTEST_LEAD_TIME_PROXY",
+            }
+        ],
+        equipment_override_rows=[
+            {
+                "source_row_id": "equipment-override-row-2",
+                "scenario_id": "SCN-BASE",
+                "equipment_id": "HYD-CUT-01",
+                "is_available": "maybe",
+            }
+        ],
+        priority_override_rows=[
+            {
+                "source_row_id": "priority-override-row-2",
+                "scenario_id": "SCN-BASE",
+                "customer_name": "Acme",
+                "priority_boost": "urgent",
+            }
+        ],
+        recipe_override_rows=[
+            {
+                "source_row_id": "recipe-override-row-2",
+                "scenario_id": "SCN-BASE",
+                "domain": "UNKNOWN",
+                "item_code": "ITEM-1",
+                "recipe_id": "R-1",
+            }
+        ],
+        output_request_rows=[],
+        engine_version="planning-core-test-v1",
+    )
+
+    assert len(result.scenario_definitions) == 1
+    scenario = result.scenario_definitions[0]
+    assert scenario.equipment_overrides == {}
+    assert scenario.priority_overrides == {}
+    assert scenario.recipe_overrides == {}
+    assert {
+        (error.source_row_id, error.field)
+        for error in result.errors
+    } == {
+        ("equipment-override-row-2", "is_available"),
+        ("priority-override-row-2", "priority_boost"),
+        ("recipe-override-row-2", "domain"),
+    }
+
+
 def test_ai_drafted_scenarios_are_normalized_as_non_executable_drafts():
     result = import_scenario_workbook_rows(
         header_rows=[

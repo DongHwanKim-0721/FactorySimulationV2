@@ -52,6 +52,12 @@ class _ScenarioRowError(Exception):
     message: str
 
 
+@dataclass(frozen=True)
+class _ScenarioRuleRow:
+    priority_rule: str
+    proxy_weights: dict[str, float]
+
+
 def import_scenario_workbook_rows(
     *,
     header_rows: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
@@ -62,18 +68,26 @@ def import_scenario_workbook_rows(
     output_request_rows: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
     engine_version: str,
 ) -> ScenarioWorkbookImportResult:
-    rules_by_scenario = {
-        str(row.get("scenario_id") or "").strip(): dict(row)
-        for row in rule_rows
-        if str(row.get("scenario_id") or "").strip()
-    }
-    equipment_overrides = _equipment_overrides_by_scenario(equipment_override_rows)
-    priority_overrides = _priority_overrides_by_scenario(priority_override_rows)
-    recipe_overrides = _recipe_overrides_by_scenario(recipe_override_rows)
-    output_requirements = _output_requirements_by_scenario(output_request_rows)
-
     scenarios: list[ScenarioDefinition] = []
     errors: list[ScenarioValidationError] = []
+
+    rules_by_scenario, invalid_rule_scenario_ids = _rules_by_scenario(
+        rule_rows,
+        errors,
+    )
+    equipment_overrides = _equipment_overrides_by_scenario(
+        equipment_override_rows,
+        errors,
+    )
+    priority_overrides = _priority_overrides_by_scenario(
+        priority_override_rows,
+        errors,
+    )
+    recipe_overrides = _recipe_overrides_by_scenario(
+        recipe_override_rows,
+        errors,
+    )
+    output_requirements = _output_requirements_by_scenario(output_request_rows)
 
     for index, row in enumerate(header_rows, start=2):
         raw_values = dict(row)
@@ -81,13 +95,14 @@ def import_scenario_workbook_rows(
 
         try:
             scenario_id = _required_text(raw_values, "scenario_id")
+            if scenario_id in invalid_rule_scenario_ids:
+                continue
             rule_row = rules_by_scenario.get(scenario_id)
             if rule_row is None:
                 raise _ScenarioRowError(
                     "priority_rule",
                     f"Missing scenario rule row for scenario: {scenario_id}",
                 )
-            priority_rule = _required_text(rule_row, "priority_rule")
             scenario_source = _required_text(raw_values, "scenario_source")
             scenarios.append(
                 ScenarioDefinition(
@@ -99,8 +114,8 @@ def import_scenario_workbook_rows(
                         raw_values.get("included_plan_batch_ids")
                     ),
                     domain_filters=_parse_domain_tuple(raw_values.get("domain_filters")),
-                    priority_rule=priority_rule,
-                    proxy_weights=_parse_weight_map(rule_row.get("proxy_weights")),
+                    priority_rule=rule_row.priority_rule,
+                    proxy_weights=rule_row.proxy_weights,
                     equipment_overrides=equipment_overrides.get(scenario_id, {}),
                     priority_overrides=priority_overrides.get(scenario_id, {}),
                     recipe_overrides=recipe_overrides.get(scenario_id, {}),
@@ -132,6 +147,32 @@ def import_scenario_workbook_rows(
         scenario_definitions=tuple(scenarios),
         errors=tuple(errors),
     )
+
+
+def _rules_by_scenario(
+    rows: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
+    errors: list[ScenarioValidationError],
+) -> tuple[dict[str, _ScenarioRuleRow], set[str]]:
+    grouped: dict[str, _ScenarioRuleRow] = {}
+    invalid_scenario_ids: set[str] = set()
+
+    for index, row in enumerate(rows, start=2):
+        raw_values = dict(row)
+        source_row_id = _source_row_id(raw_values, "scenario-rule-row", index)
+        scenario_id = str(raw_values.get("scenario_id") or "").strip()
+        if not scenario_id:
+            continue
+
+        try:
+            grouped[scenario_id] = _ScenarioRuleRow(
+                priority_rule=_required_text(raw_values, "priority_rule"),
+                proxy_weights=_parse_weight_map(raw_values.get("proxy_weights")),
+            )
+        except _ScenarioRowError as exc:
+            invalid_scenario_ids.add(scenario_id)
+            _append_validation_error(errors, source_row_id, raw_values, exc)
+
+    return grouped, invalid_scenario_ids
 
 
 def built_in_scenario_templates(*, engine_version: str) -> tuple[ScenarioDefinition, ...]:
@@ -277,16 +318,22 @@ def compare_scenario_reports(
 
 def _equipment_overrides_by_scenario(
     rows: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
+    errors: list[ScenarioValidationError],
 ) -> dict[str, dict[str, bool]]:
     grouped: dict[str, dict[str, bool]] = {}
-    for row in rows:
-        scenario_id = str(row.get("scenario_id") or "").strip()
-        equipment_id = str(row.get("equipment_id") or "").strip()
+    for index, row in enumerate(rows, start=2):
+        raw_values = dict(row)
+        source_row_id = _source_row_id(raw_values, "equipment-override-row", index)
+        scenario_id = str(raw_values.get("scenario_id") or "").strip()
+        equipment_id = str(raw_values.get("equipment_id") or "").strip()
         if scenario_id and equipment_id:
-            grouped.setdefault(scenario_id, {})[equipment_id] = _parse_bool(
-                row.get("is_available"),
-                default=True,
-            )
+            try:
+                grouped.setdefault(scenario_id, {})[equipment_id] = _parse_bool(
+                    raw_values.get("is_available"),
+                    default=True,
+                )
+            except _ScenarioRowError as exc:
+                _append_validation_error(errors, source_row_id, raw_values, exc)
     return grouped
 
 
@@ -301,29 +348,42 @@ def _bottleneck_risk_signals(report: LoadAndRiskReport) -> tuple[str, ...]:
 
 def _priority_overrides_by_scenario(
     rows: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
+    errors: list[ScenarioValidationError],
 ) -> dict[str, dict[str, float]]:
     grouped: dict[str, dict[str, float]] = {}
-    for row in rows:
-        scenario_id = str(row.get("scenario_id") or "").strip()
-        customer_name = str(row.get("customer_name") or "").strip()
+    for index, row in enumerate(rows, start=2):
+        raw_values = dict(row)
+        source_row_id = _source_row_id(raw_values, "priority-override-row", index)
+        scenario_id = str(raw_values.get("scenario_id") or "").strip()
+        customer_name = str(raw_values.get("customer_name") or "").strip()
         if scenario_id and customer_name:
-            grouped.setdefault(scenario_id, {})[customer_name] = float(
-                row.get("priority_boost") or 0
-            )
+            try:
+                grouped.setdefault(scenario_id, {})[customer_name] = _parse_float(
+                    raw_values.get("priority_boost"),
+                    "priority_boost",
+                )
+            except _ScenarioRowError as exc:
+                _append_validation_error(errors, source_row_id, raw_values, exc)
     return grouped
 
 
 def _recipe_overrides_by_scenario(
     rows: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...],
+    errors: list[ScenarioValidationError],
 ) -> dict[str, dict[tuple[str, str], str]]:
     grouped: dict[str, dict[tuple[str, str], str]] = {}
-    for row in rows:
-        scenario_id = str(row.get("scenario_id") or "").strip()
-        item_code = str(row.get("item_code") or "").strip()
-        recipe_id = str(row.get("recipe_id") or "").strip()
+    for index, row in enumerate(rows, start=2):
+        raw_values = dict(row)
+        source_row_id = _source_row_id(raw_values, "recipe-override-row", index)
+        scenario_id = str(raw_values.get("scenario_id") or "").strip()
+        item_code = str(raw_values.get("item_code") or "").strip()
+        recipe_id = str(raw_values.get("recipe_id") or "").strip()
         if scenario_id and item_code and recipe_id:
-            domain_code = _normalize_domain_code(row.get("domain") or "")
-            grouped.setdefault(scenario_id, {})[(domain_code, item_code)] = recipe_id
+            try:
+                domain_code = _normalize_domain_code(raw_values.get("domain") or "")
+                grouped.setdefault(scenario_id, {})[(domain_code, item_code)] = recipe_id
+            except _ScenarioRowError as exc:
+                _append_validation_error(errors, source_row_id, raw_values, exc)
     return grouped
 
 
@@ -370,14 +430,27 @@ def _parse_weight_map(value: Any) -> dict[str, float]:
     if value is None or str(value).strip() == "":
         return {}
     if isinstance(value, dict):
-        return {str(key): float(weight) for key, weight in value.items()}
+        return {
+            str(key): _parse_float(weight, "proxy_weights")
+            for key, weight in value.items()
+        }
 
     weights: dict[str, float] = {}
     for token in _parse_text_tuple(value):
         key, separator, raw_weight = token.partition("=")
         if separator:
-            weights[key.strip()] = float(raw_weight.strip())
+            weights[key.strip()] = _parse_float(raw_weight.strip(), "proxy_weights")
     return weights
+
+
+def _parse_float(value: Any, field: str) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError) as exc:
+        raise _ScenarioRowError(
+            field,
+            f"Invalid numeric scenario field {field}: {value}",
+        ) from exc
 
 
 def _parse_bool(value: Any, *, default: bool) -> bool:
@@ -398,3 +471,23 @@ def _normalize_domain_code(value: Any) -> str:
         return normalize_domain_code(str(value))
     except ValueError as exc:
         raise _ScenarioRowError("domain", str(exc)) from exc
+
+
+def _source_row_id(raw_values: Mapping[str, Any], prefix: str, index: int) -> str:
+    return str(raw_values.get("source_row_id") or f"{prefix}-{index}")
+
+
+def _append_validation_error(
+    errors: list[ScenarioValidationError],
+    source_row_id: str,
+    raw_values: dict[str, Any],
+    exc: _ScenarioRowError,
+) -> None:
+    errors.append(
+        ScenarioValidationError(
+            source_row_id=source_row_id,
+            field=exc.field,
+            message=exc.message,
+            raw_values=raw_values,
+        )
+    )
