@@ -22,7 +22,7 @@ Use this file to decide which documents are the current contract.
 7. `docs/prd/active/production-planning-mvp-slices.md` - implementation sequence for the first MVP.
 8. `docs/prd/active/production-planning-issue-drafts.md` - published GitHub issue record for issues #16-#22.
 9. `docs/planning-workbook-contract.md` - executable Excel workbook and CLI contract.
-10. `docs/prd/active/production-planning-ui-slices.md` - next planning UI slice contract.
+10. `docs/prd/active/production-planning-ui-slices.md` - implemented planning UI workbook-runner baseline and slice contract.
 
 ## CURRENT Documents
 
@@ -41,7 +41,7 @@ These documents define the current product direction: FactorySimulation V2 has p
 - `docs/planning-workbook-contract.md`
 - `docs/prd/active/production-planning-ui-slices.md`
 
-These are active product/data, implementation-sequence, issue-record, executable workbook, and planning UI slice contracts for the planning core. The #16-#22 MVP package is complete; future slices should extend this baseline rather than reopen the route/canvas prototype direction.
+These are active product/data, implementation-sequence, issue-record, executable workbook, and planning UI contracts for the planning core. The #16-#22 MVP package and first planning UI workbook-runner baseline are complete; future slices should extend this baseline rather than reopen the route/canvas prototype direction.
 
 ## REFERENCE Documents
 

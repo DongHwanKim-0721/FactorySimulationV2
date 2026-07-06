@@ -36,9 +36,15 @@ Reason: this gives planners a concrete starting point while keeping the workbook
 
 ## 2026-07-06: First Planning UI Wraps The Workbook Workflow
 
-The first planning UI should be a workbook-run launcher that creates templates, selects an input workbook, collects explicit run metadata, calls the deterministic workbook runner, writes JSON and/or Excel report outputs, and shows a compact deterministic report summary.
+The first planning UI is a workbook-run launcher that creates templates, selects an input workbook, collects explicit run metadata, calls the deterministic workbook runner, writes JSON and/or Excel report outputs, and shows a compact deterministic report summary.
 
 Reason: this makes the planning core visible to planners without reopening the route/canvas prototype, adding new calculation logic in UI code, or introducing deferred scheduling and standard-time assumptions.
+
+## 2026-07-06: Planning Launcher Uses A Separate Window And Reveals Artifacts
+
+The planning workbook launcher lives outside the route/canvas editing surface. It can run as `python planning_launcher.py` and can also be opened from the existing desktop app toolbar as a separate top-level Tkinter window. Generated JSON and Excel report files are revealed as paths, not opened automatically. Suggested output names use the input workbook stem with `-planning-run-report.json` and `-planning-run-report.xlsx`.
+
+Reason: planners get a visible workflow from the desktop app while the frozen prototype remains isolated. Revealing paths avoids surprising file-launch side effects and keeps JSON as the deterministic report source while Excel remains a derived planner-facing artifact.
 
 ## 2026-07-01: Route/Canvas Prototype Is Frozen
 

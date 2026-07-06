@@ -36,8 +36,11 @@ The planning core currently includes:
 - CLI execution for creating a sample or blank planning input workbook template
 - CLI execution for `workbook.xlsx -> planning-run-report.json`
 - CLI execution for `workbook.xlsx -> planning-run-report.xlsx`
+- UI-facing planning workbook service for template creation, deterministic workbook execution, JSON/XLSX report output, and compact summary formatting
+- standalone Tkinter planning workbook launcher, also reachable from the existing desktop app toolbar as a separate top-level window
+- planning launcher guardrails for required workbook sheets, explicit run metadata, contract document reference, suggested output paths, and generated output artifact paths
 
-The next product question is whether to implement the first planning UI vertical slice: a workbook-run launcher that creates templates, accepts run metadata, calls the deterministic workbook runner, and shows a compact report summary.
+The first planning UI workbook-runner baseline is implemented. It keeps the route/canvas prototype separate, delegates calculations to the deterministic workbook service, and does not add due-date scheduling, standard-time calculation, or AI calculation authority.
 
 ## Current Implemented Prototype
 
@@ -62,7 +65,7 @@ Treat this behavior as REFERENCE unless the user explicitly asks for prototype m
 - `docs/prd/active/production-planning-mvp-slices.md`: completed implementation sequence for the first production-planning MVP.
 - `docs/prd/active/production-planning-issue-drafts.md`: published and completed GitHub issue record for production-planning MVP issues #16-#22.
 - `docs/planning-workbook-contract.md`: executable workbook sheet and CLI contract.
-- `docs/prd/active/production-planning-ui-slices.md`: next planning UI slice contract.
+- `docs/prd/active/production-planning-ui-slices.md`: implemented first planning UI workbook-runner baseline and future UI slice contract.
 
 GitHub issues #11-#15 have been implemented locally for the route/canvas prototype but should not be closed automatically unless the user asks.
 
@@ -91,7 +94,7 @@ Last local automated verification for the combined frozen prototype and planning
 
 ```text
 pytest -q
-140 passed
+156 passed
 ```
 
 The desktop executable was rebuilt with:

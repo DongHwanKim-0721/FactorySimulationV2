@@ -30,6 +30,7 @@ from engine.scenario_io import (
     save_document,
 )
 from engine.simulation import BlockResult, BundleRecord, SimulationResult, simulate
+from planning_launcher import PlanningWorkbookLauncher
 
 
 @dataclass(frozen=True)
@@ -497,6 +498,7 @@ PLAYBACK_PLAY_LABEL = "▶ 재생"
 PLAYBACK_PAUSE_LABEL = "⏸ 일시정지"
 PLAYBACK_RESET_LABEL = "↺ 시점 초기화"
 PLAYBACK_ACTION_BUTTON_WIDTH = 12
+PLANNING_LAUNCHER_BUTTON_LABEL = "Planning workbook"
 
 
 @dataclass
@@ -782,6 +784,7 @@ class App:
         self.connection_start_id: int | None = None
         self.selected_route_input_id: int | None = None
         self.route_selection_state: RouteSelectionState | None = None
+        self._planning_launcher_window: tk.Toplevel | None = None
         self.status_var = tk.StringVar(value="준비 완료")
 
         self._create_widgets()
@@ -860,6 +863,7 @@ class App:
         button_frame = ttk.Frame(toolbar, style="Toolbar.TFrame")
         button_frame.pack(side=tk.RIGHT, padx=10)
         for label, command in (
+            (PLANNING_LAUNCHER_BUTTON_LABEL, self.open_planning_workbook_launcher),
             ("시뮬레이션 실행", self.run_simulation),
             ("저장", self.save_scenario),
             ("불러오기", self.load_scenario),
@@ -897,6 +901,25 @@ class App:
 
     def run(self) -> None:
         self.root.mainloop()
+
+    def open_planning_workbook_launcher(self) -> None:
+        if (
+            self._planning_launcher_window is not None
+            and self._planning_launcher_window.winfo_exists()
+        ):
+            self._planning_launcher_window.lift()
+            self._planning_launcher_window.focus_force()
+            return
+
+        window = tk.Toplevel(self.root)
+        self._planning_launcher_window = window
+        PlanningWorkbookLauncher(window)
+
+        def close_window() -> None:
+            self._planning_launcher_window = None
+            window.destroy()
+
+        window.protocol("WM_DELETE_WINDOW", close_window)
 
     @property
     def active_sheet(self) -> SheetState:

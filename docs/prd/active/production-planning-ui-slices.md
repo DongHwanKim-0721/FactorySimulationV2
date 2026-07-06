@@ -1,6 +1,6 @@
 # Production Planning UI Slices
 
-Status: ACTIVE / DRAFT
+Status: ACTIVE / IMPLEMENTED BASELINE
 Updated: 2026-07-06
 Parent PRD: `docs/prd/active/production-planning-pivot.md`
 Depends on: `docs/planning-workbook-contract.md`
@@ -54,6 +54,8 @@ It must not:
 
 ### Slice 1: Planning Run Launcher Shell
 
+Implementation status: implemented as `planning_launcher.py`, available both as a standalone entry point and from the existing desktop app toolbar through a separate top-level window.
+
 Create a new planning-run launcher surface that is visually and behaviorally separate from the route/canvas prototype.
 
 Acceptance criteria:
@@ -65,6 +67,8 @@ Acceptance criteria:
 
 ### Slice 2: Deterministic Run Execution
 
+Implementation status: implemented through the UI-facing planning workbook service. The launcher delegates execution to the deterministic workbook workflow and does not perform planning calculations in UI code.
+
 Wire the launcher to the existing workbook workflow.
 
 Acceptance criteria:
@@ -75,6 +79,8 @@ Acceptance criteria:
 - The same workbook and metadata produce the same report as the CLI.
 
 ### Slice 3: Report Summary View
+
+Implementation status: implemented as a compact read-only summary derived from the deterministic JSON snapshot.
 
 Show a compact read-only summary of the deterministic report.
 
@@ -88,6 +94,8 @@ Acceptance criteria:
 
 ### Slice 4: Workbook Contract Guardrails
 
+Implementation status: implemented with workbook sheet checks, run-field preflight checks, contract document reference text, and no source-workbook auto-repair behavior.
+
 Add UI guardrails for workbook contracts without replacing Excel as the authoring surface.
 
 Acceptance criteria:
@@ -99,14 +107,16 @@ Acceptance criteria:
 
 ## Open Design Questions
 
-- Should the planning-run launcher live inside the existing Tkinter desktop app as a separate top-level tab/window, or as a separate entry point?
-- Should generated report files be opened automatically, or should the UI only reveal paths?
-- Should the report summary read from JSON only, or also from generated Excel report workbooks?
-- What naming convention should the UI use for output files when the planner leaves output paths blank?
+Resolved implementation decisions:
 
-## Recommended First Implementation
+- The launcher lives in a separate top-level Tkinter window opened from the existing desktop app toolbar, and can also run as `python planning_launcher.py`.
+- Generated report files are not opened automatically. The UI reveals generated artifact paths in the summary/output-artifact view.
+- The report summary is derived from the deterministic JSON snapshot returned by the workbook service. Excel report workbooks remain derived presentation outputs.
+- Suggested output file names use the input workbook stem: `<input-stem>-planning-run-report.json` and `<input-stem>-planning-run-report.xlsx`.
 
-Start with Slice 1 and Slice 2 together as one thin vertical slice:
+## Implemented Baseline
+
+The first implementation combines Slices 1-4 as a thin workbook-runner baseline:
 
 - no new planning math
 - no route/canvas changes
