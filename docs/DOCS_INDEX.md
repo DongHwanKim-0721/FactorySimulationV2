@@ -40,8 +40,9 @@ These documents define the current product direction: FactorySimulation V2 has p
 - `docs/prd/active/production-planning-issue-drafts.md`
 - `docs/planning-workbook-contract.md`
 - `docs/prd/active/production-planning-ui-slices.md`
+- `docs/manual-planning-launcher-smoke-checklist.md`
 
-These are active product/data, implementation-sequence, issue-record, executable workbook, and planning UI contracts for the planning core. The #16-#22 MVP package and first planning UI workbook-runner baseline are complete; future slices should extend this baseline rather than reopen the route/canvas prototype direction.
+These are active product/data, implementation-sequence, issue-record, executable workbook, planning UI contracts, and smoke checks for the planning core. The #16-#22 MVP package and first planning UI workbook-runner baseline are complete; future slices should extend this baseline rather than reopen the route/canvas prototype direction.
 
 ## REFERENCE Documents
 
