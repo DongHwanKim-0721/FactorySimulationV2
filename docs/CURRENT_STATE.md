@@ -37,7 +37,7 @@ The planning core currently includes:
 - CLI execution for `workbook.xlsx -> planning-run-report.json`
 - CLI execution for `workbook.xlsx -> planning-run-report.xlsx`
 
-The next product question is whether the workbook CLI workflow is ready for a planning-core UI.
+The next product question is whether to implement the first planning UI vertical slice: a workbook-run launcher that creates templates, accepts run metadata, calls the deterministic workbook runner, and shows a compact report summary.
 
 ## Current Implemented Prototype
 
@@ -62,6 +62,7 @@ Treat this behavior as REFERENCE unless the user explicitly asks for prototype m
 - `docs/prd/active/production-planning-mvp-slices.md`: completed implementation sequence for the first production-planning MVP.
 - `docs/prd/active/production-planning-issue-drafts.md`: published and completed GitHub issue record for production-planning MVP issues #16-#22.
 - `docs/planning-workbook-contract.md`: executable workbook sheet and CLI contract.
+- `docs/prd/active/production-planning-ui-slices.md`: next planning UI slice contract.
 
 GitHub issues #11-#15 have been implemented locally for the route/canvas prototype but should not be closed automatically unless the user asks.
 

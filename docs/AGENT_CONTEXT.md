@@ -21,7 +21,7 @@ The existing route/canvas Tkinter simulator still works, but it is now a frozen 
 - #22: user-authored scenario normalization and deterministic comparison.
 - Post-MVP: deterministic planning-run reports, real `.xlsx` workbook row IO, CLI template creation, CLI workbook-to-JSON execution, and CLI workbook-to-report-workbook execution.
 
-The current next step is to decide whether the workbook CLI workflow is ready for planning-core UI work.
+The current next step is to implement or review the first planning UI vertical slice: a workbook-run launcher that wraps the existing deterministic workbook workflow.
 
 ## Current Source Of Truth
 
@@ -30,6 +30,7 @@ The current next step is to decide whether the workbook CLI workflow is ready fo
 - Key decisions: `docs/DECISION_LOG.md`
 - Active planning PRD: `docs/prd/active/production-planning-pivot.md`
 - Workbook/CLI contract: `docs/planning-workbook-contract.md`
+- Planning UI slice contract: `docs/prd/active/production-planning-ui-slices.md`
 - Route/canvas reference PRDs: `docs/prd/done/route-based-material-routing.md` and `docs/prd/done/canvas-click-route-selection.md`
 
 Historical PRDs and handoffs are preserved under `docs/prd/archive/` and `docs/handoffs/archive/`. Use them only for background unless a current document points to them.

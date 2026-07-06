@@ -34,6 +34,12 @@ The planning input workbook template is generated from the same sheet/header con
 
 Reason: this gives planners a concrete starting point while keeping the workbook contract in code and avoiding a hand-maintained spreadsheet format.
 
+## 2026-07-06: First Planning UI Wraps The Workbook Workflow
+
+The first planning UI should be a workbook-run launcher that creates templates, selects an input workbook, collects explicit run metadata, calls the deterministic workbook runner, writes JSON and/or Excel report outputs, and shows a compact deterministic report summary.
+
+Reason: this makes the planning core visible to planners without reopening the route/canvas prototype, adding new calculation logic in UI code, or introducing deferred scheduling and standard-time assumptions.
+
 ## 2026-07-01: Route/Canvas Prototype Is Frozen
 
 The implemented Tkinter route/canvas simulator is frozen as a working prototype, reference implementation, and demo. Future product work should not keep extending the manual route editor unless the user explicitly asks for prototype maintenance.
