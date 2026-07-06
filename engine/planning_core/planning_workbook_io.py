@@ -10,6 +10,7 @@ from xml.sax.saxutils import escape
 from zipfile import BadZipFile, ZIP_DEFLATED, ZipFile
 import xml.etree.ElementTree as ET
 
+from .contracts import ProductionPlanLine
 from .equipment_snapshot_import import import_equipment_snapshot_rows
 from .load_risk import generate_load_and_risk_report
 from .production_plan_import import import_production_plan_rows
@@ -659,17 +660,26 @@ def render_planning_workbook_report_snapshot(
         plan_result.lines,
         recipe_headers,
     )
-    scenario_reports = {
-        scenario.scenario_id: generate_load_and_risk_report(
-            plan_lines=plan_result.lines,
-            matching_result=matching_result,
+    scenario_reports = {}
+    for scenario in scenario_result.scenario_definitions:
+        if not scenario.is_executable:
+            continue
+        scenario_plan_lines = _scenario_plan_lines(
+            plan_result.lines,
+            scenario.domain_filters,
+        )
+        scenario_matching_result = match_plan_lines_to_recipes(
+            scenario_plan_lines,
+            recipe_headers,
+            recipe_overrides=scenario.recipe_overrides,
+        )
+        scenario_reports[scenario.scenario_id] = generate_load_and_risk_report(
+            plan_lines=scenario_plan_lines,
+            matching_result=scenario_matching_result,
             recipe_steps=recipe_steps,
             equipment_snapshots=equipment_result.snapshots,
             equipment_overrides=scenario.equipment_overrides,
         )
-        for scenario in scenario_result.scenario_definitions
-        if scenario.is_executable
-    }
     scenario_comparison = compare_scenario_reports(
         scenarios=scenario_result.scenario_definitions,
         reports_by_scenario_id=scenario_reports,
@@ -680,6 +690,20 @@ def render_planning_workbook_report_snapshot(
         matching_result=matching_result,
         scenario_reports=scenario_reports,
         scenario_comparison=scenario_comparison,
+    )
+
+
+def _scenario_plan_lines(
+    plan_lines: tuple[ProductionPlanLine, ...],
+    domain_filters: tuple[str, ...],
+) -> tuple[ProductionPlanLine, ...]:
+    if not domain_filters:
+        return plan_lines
+    allowed_domains = set(domain_filters)
+    return tuple(
+        plan_line
+        for plan_line in plan_lines
+        if plan_line.domain_code in allowed_domains
     )
 
 

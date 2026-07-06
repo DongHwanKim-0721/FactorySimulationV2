@@ -43,10 +43,15 @@ EMPTY_SHEET_HEADERS = {
 }
 
 
-def write_e2e_planning_workbook(workbook_path: Path) -> None:
+def write_e2e_planning_workbook(
+    workbook_path: Path,
+    *,
+    sheet_rows_by_name: Mapping[str, list[Mapping[str, Any]]] | None = None,
+) -> None:
+    sheet_overrides = sheet_rows_by_name or {}
     sheets: dict[str, tuple[list[str], list[Mapping[str, Any]]]] = {}
     for sheet_name, fixture_file in SHEET_FIXTURE_FILES.items():
-        rows = _rows(fixture_file)
+        rows = list(sheet_overrides.get(sheet_name, _rows(fixture_file)))
         sheets[sheet_name] = (_headers_for(sheet_name, rows), rows)
 
     _write_minimal_xlsx(workbook_path, sheets)

@@ -44,6 +44,69 @@ def test_multiple_same_domain_candidates_are_ambiguous_without_auto_selection():
     assert result.tbd_report_rows == ()
 
 
+def test_recipe_override_selects_a_scenario_recipe_candidate():
+    plan_lines = (_plan_line("HYDRAULIC", "HYD-100", "hyd-plan-row"),)
+    recipe_headers = (
+        _recipe_header("HYDRAULIC", "HYD-100", "R-HYD-100-A", "AUTO_CANDIDATE"),
+        _recipe_header("HYDRAULIC", "HYD-100", "R-HYD-100-B", "USER_CONFIRMED"),
+    )
+
+    result = match_plan_lines_to_recipes(
+        plan_lines,
+        recipe_headers,
+        recipe_overrides={("HYDRAULIC", "HYD-100"): "R-HYD-100-B"},
+    )
+
+    match = result.matches[0]
+    assert match.status == "MATCHED"
+    assert match.selected_recipe_id == "R-HYD-100-B"
+    assert match.candidate_recipe_ids == ("R-HYD-100-A", "R-HYD-100-B")
+    assert match.reason == "SCENARIO_RECIPE_OVERRIDE"
+    assert result.tbd_report_rows == ()
+
+
+def test_recipe_override_can_select_a_tbd_recipe_for_scenario_reporting():
+    plan_lines = (_plan_line("SHAPED_MATERIAL", "SHP-300", "shp-plan-row"),)
+    recipe_headers = (
+        _recipe_header("SHAPED_MATERIAL", "SHP-300", "TBD-SHP-300", "TBD"),
+    )
+
+    result = match_plan_lines_to_recipes(
+        plan_lines,
+        recipe_headers,
+        recipe_overrides={("SHAPED_MATERIAL", "SHP-300"): "TBD-SHP-300"},
+    )
+
+    match = result.matches[0]
+    assert match.status == "MATCHED"
+    assert match.selected_recipe_id == "TBD-SHP-300"
+    assert match.candidate_recipe_ids == ("TBD-SHP-300",)
+    assert match.tbd_recipe_ids == ("TBD-SHP-300",)
+    assert match.reason == "SCENARIO_RECIPE_OVERRIDE"
+    assert result.tbd_report_rows == ()
+
+
+def test_recipe_override_does_not_select_deprecated_recipe():
+    plan_lines = (_plan_line("STS", "STS-200", "sts-plan-row"),)
+    recipe_headers = (
+        _recipe_header("STS", "STS-200", "R-STS-OLD", "DEPRECATED"),
+    )
+
+    result = match_plan_lines_to_recipes(
+        plan_lines,
+        recipe_headers,
+        recipe_overrides={("STS", "STS-200"): "R-STS-OLD"},
+    )
+
+    match = result.matches[0]
+    assert match.status == "DEPRECATED_ONLY"
+    assert match.selected_recipe_id == ""
+    assert match.candidate_recipe_ids == ()
+    assert match.deprecated_recipe_ids == ("R-STS-OLD",)
+    assert match.reason == "OVERRIDE_RECIPE_DEPRECATED"
+    assert result.tbd_report_rows[0].reason == "OVERRIDE_RECIPE_DEPRECATED"
+
+
 def test_deprecated_recipes_are_reported_but_not_selected_by_default():
     plan_lines = (_plan_line("STS", "STS-200", "sts-plan-row"),)
     recipe_headers = (

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Mapping
 
 from .contracts import ProductionPlanLine, RecipeHeader
 
@@ -43,9 +44,12 @@ class RecipeMatchingResult:
 def match_plan_lines_to_recipes(
     plan_lines: tuple[ProductionPlanLine, ...] | list[ProductionPlanLine],
     recipe_headers: tuple[RecipeHeader, ...] | list[RecipeHeader],
+    *,
+    recipe_overrides: Mapping[tuple[str, str], str] | None = None,
 ) -> RecipeMatchingResult:
     matches: list[RecipePlanMatch] = []
     tbd_report_rows: list[MissingRecipeReportRow] = []
+    overrides = recipe_overrides or {}
 
     for plan_line in plan_lines:
         headers = sorted(
@@ -74,8 +78,37 @@ def match_plan_lines_to_recipes(
             for header in headers
             if header.recipe_status == "TBD"
         )
+        override_recipe_id = overrides.get((plan_line.domain_code, plan_line.item_code))
+        override_header = next(
+            (
+                header
+                for header in headers
+                if header.recipe_id == override_recipe_id
+            ),
+            None,
+        )
+        selected_override_recipe_id = (
+            override_recipe_id
+            if (
+                override_header is not None
+                and override_header.recipe_status != "DEPRECATED"
+            )
+            else None
+        )
 
-        if len(selectable) == 1:
+        if selected_override_recipe_id:
+            status = "MATCHED"
+            selected_recipe_id = selected_override_recipe_id
+            reason = "SCENARIO_RECIPE_OVERRIDE"
+        elif override_recipe_id and override_header is not None:
+            status = "DEPRECATED_ONLY"
+            selected_recipe_id = ""
+            reason = "OVERRIDE_RECIPE_DEPRECATED"
+        elif override_recipe_id:
+            status = "MISSING"
+            selected_recipe_id = ""
+            reason = "OVERRIDE_RECIPE_NOT_FOUND"
+        elif len(selectable) == 1:
             status = "MATCHED"
             selected_recipe_id = selectable[0].recipe_id
             reason = "SINGLE_SELECTABLE_RECIPE"
@@ -98,7 +131,10 @@ def match_plan_lines_to_recipes(
             item_code=plan_line.item_code,
             status=status,
             selected_recipe_id=selected_recipe_id,
-            candidate_recipe_ids=tuple(header.recipe_id for header in selectable),
+            candidate_recipe_ids=_candidate_recipe_ids(
+                selectable,
+                override_recipe_id=selected_override_recipe_id,
+            ),
             deprecated_recipe_ids=deprecated_recipe_ids,
             tbd_recipe_ids=tbd_recipe_ids,
             reason=reason,
@@ -112,6 +148,17 @@ def match_plan_lines_to_recipes(
         matches=tuple(matches),
         tbd_report_rows=tuple(tbd_report_rows),
     )
+
+
+def _candidate_recipe_ids(
+    selectable: tuple[RecipeHeader, ...],
+    *,
+    override_recipe_id: str | None,
+) -> tuple[str, ...]:
+    ids = [header.recipe_id for header in selectable]
+    if override_recipe_id and override_recipe_id not in ids:
+        ids.append(override_recipe_id)
+    return tuple(ids)
 
 
 def _tbd_report_row(
