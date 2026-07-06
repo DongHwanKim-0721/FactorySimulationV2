@@ -1,0 +1,8 @@
+[
+  {
+    "source_row_id": "scenario-equipment-row-2",
+    "scenario_id": "SCN-HYD-CUT-DOWN",
+    "equipment_id": "HYD-CUT-01",
+    "is_available": "false"
+  }
+]

@@ -1,0 +1,29 @@
+[
+  {
+    "source_row_id": "scenario-header-row-2",
+    "scenario_id": "SCN-BASE",
+    "scenario_name": "Baseline",
+    "scenario_source": "USER_AUTHORED",
+    "scope": "WHOLE_FACTORY",
+    "included_plan_batch_ids": "PLAN-2026-07-M",
+    "domain_filters": "HYDRAULIC;STS;SHAPED_MATERIAL"
+  },
+  {
+    "source_row_id": "scenario-header-row-3",
+    "scenario_id": "SCN-HYD-CUT-DOWN",
+    "scenario_name": "Hydraulic cutter unavailable",
+    "scenario_source": "USER_AUTHORED",
+    "scope": "WHOLE_FACTORY",
+    "included_plan_batch_ids": "PLAN-2026-07-M",
+    "domain_filters": "HYDRAULIC;STS;SHAPED_MATERIAL"
+  },
+  {
+    "source_row_id": "scenario-header-row-4",
+    "scenario_id": "SCN-AI-DRAFT",
+    "scenario_name": "AI draft review only",
+    "scenario_source": "AI_DRAFT",
+    "scope": "WHOLE_FACTORY",
+    "included_plan_batch_ids": "PLAN-2026-07-M",
+    "domain_filters": "HYDRAULIC;STS;SHAPED_MATERIAL"
+  }
+]

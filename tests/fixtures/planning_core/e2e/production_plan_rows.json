@@ -1,0 +1,41 @@
+[
+  {
+    "source_row_id": "plan-row-2",
+    "domain": "HYDRAULIC",
+    "customer": "Acme",
+    "customer_order_ref": "ACME-JUL-01",
+    "order_type": "domestic",
+    "product_group": "CYLINDER",
+    "item_code": "HYD-100",
+    "item_name": "Hydraulic cylinder A",
+    "order_quantity": "120",
+    "weight": "3400.5",
+    "unit": "EA"
+  },
+  {
+    "source_row_id": "plan-row-3",
+    "domain": "STS",
+    "customer": "Beta Steel",
+    "customer_order_ref": "STS-RUSH-01",
+    "order_type": "export",
+    "product_group": "PIPE",
+    "item_code": "STS-200",
+    "item_name": "STS pipe B",
+    "order_quantity": "80",
+    "weight": "2100",
+    "unit": "EA"
+  },
+  {
+    "source_row_id": "plan-row-4",
+    "domain": "SHAPED_MATERIAL",
+    "customer": "Gamma Profile",
+    "customer_order_ref": "SHP-PILOT-01",
+    "order_type": "pilot",
+    "product_group": "PROFILE",
+    "item_code": "SHP-300",
+    "item_name": "Shaped profile C",
+    "order_quantity": "30",
+    "weight": "600",
+    "unit": "EA"
+  }
+]

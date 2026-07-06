@@ -1,0 +1,334 @@
+{
+  "ai_role": "DRAFTS_AND_RECOMMENDATIONS_ONLY",
+  "calculation_authority": "DETERMINISTIC_ENGINE",
+  "deferred_capabilities": [
+    "DUE_DATE_SCHEDULING",
+    "STANDARD_TIME_CALCULATION"
+  ],
+  "fixture_contract_version": 2,
+  "planning_boundary": "PRODUCTION_PLANNING_CORE_ONLY",
+  "prototype_dependency": "NONE",
+  "recipe_matching": {
+    "match_status_counts": {
+      "MATCHED": 2,
+      "MISSING": 1
+    },
+    "matches": [
+      {
+        "candidate_recipe_ids": [
+          "AUTO-HYDRAULIC-HYD-100"
+        ],
+        "deprecated_recipe_ids": [],
+        "domain_code": "HYDRAULIC",
+        "item_code": "HYD-100",
+        "plan_source_row_id": "plan-row-2",
+        "reason": "SINGLE_SELECTABLE_RECIPE",
+        "selected_recipe_id": "AUTO-HYDRAULIC-HYD-100",
+        "status": "MATCHED",
+        "tbd_recipe_ids": []
+      },
+      {
+        "candidate_recipe_ids": [
+          "AUTO-STS-STS-200"
+        ],
+        "deprecated_recipe_ids": [],
+        "domain_code": "STS",
+        "item_code": "STS-200",
+        "plan_source_row_id": "plan-row-3",
+        "reason": "SINGLE_SELECTABLE_RECIPE",
+        "selected_recipe_id": "AUTO-STS-STS-200",
+        "status": "MATCHED",
+        "tbd_recipe_ids": []
+      },
+      {
+        "candidate_recipe_ids": [],
+        "deprecated_recipe_ids": [],
+        "domain_code": "SHAPED_MATERIAL",
+        "item_code": "SHP-300",
+        "plan_source_row_id": "plan-row-4",
+        "reason": "MISSING",
+        "selected_recipe_id": "",
+        "status": "MISSING",
+        "tbd_recipe_ids": [
+          "TBD-SHP-300"
+        ]
+      }
+    ],
+    "tbd_report_rows": [
+      {
+        "customer_name": "Gamma Profile",
+        "customer_order_ref": "SHP-PILOT-01",
+        "domain_code": "SHAPED_MATERIAL",
+        "item_code": "SHP-300",
+        "item_name": "Shaped profile C",
+        "plan_batch_id": "PLAN-2026-07-M",
+        "plan_source_row_id": "plan-row-4",
+        "reason": "MISSING"
+      }
+    ]
+  },
+  "scenario_comparison": {
+    "engine_version": "planning-core-e2e-v1",
+    "ranked_scenarios": [
+      {
+        "ai_explanation": "",
+        "ambiguous_recipe_count": 0,
+        "bottleneck_risk_signals": [
+          "PROXY_LOAD",
+          "SNAPSHOT_UNAVAILABLE"
+        ],
+        "deterministic_metrics": {
+          "ambiguous_recipe_count": 0,
+          "missing_recipe_count": 1,
+          "risk_score_total": 400.0,
+          "unplannable_line_count": 1
+        },
+        "deterministic_score": 11400.0,
+        "missing_recipe_count": 1,
+        "priority_rule": "SHORTEST_LEAD_TIME_PROXY",
+        "rank": 1,
+        "ranking_reasons": [
+          "LOWEST_DETERMINISTIC_PROXY_SCORE"
+        ],
+        "scenario_id": "SCN-BASE",
+        "scenario_name": "Baseline",
+        "unplannable_line_count": 1
+      },
+      {
+        "ai_explanation": "",
+        "ambiguous_recipe_count": 0,
+        "bottleneck_risk_signals": [
+          "PROXY_LOAD",
+          "OVERRIDE_UNAVAILABLE",
+          "SNAPSHOT_UNAVAILABLE"
+        ],
+        "deterministic_metrics": {
+          "ambiguous_recipe_count": 0,
+          "missing_recipe_count": 1,
+          "risk_score_total": 520.0,
+          "unplannable_line_count": 1
+        },
+        "deterministic_score": 11520.0,
+        "missing_recipe_count": 1,
+        "priority_rule": "EQUIPMENT_UNAVAILABLE",
+        "rank": 2,
+        "ranking_reasons": [
+          "HIGHER_DETERMINISTIC_PROXY_SCORE"
+        ],
+        "scenario_id": "SCN-HYD-CUT-DOWN",
+        "scenario_name": "Hydraulic cutter unavailable",
+        "unplannable_line_count": 1
+      }
+    ],
+    "skipped_scenario_ids": [
+      "SCN-AI-DRAFT"
+    ]
+  },
+  "scenario_reports": {
+    "SCN-BASE": {
+      "ambiguous_recipe_count": 0,
+      "bottleneck_risks": [
+        {
+          "domain_code": "HYDRAULIC",
+          "equipment_group": "HYD-CUT-01",
+          "process_group": "CUTTING",
+          "proxy_load_units": 120.0,
+          "risk_level": "LOW",
+          "risk_score": 120.0,
+          "signals": [
+            "PROXY_LOAD"
+          ]
+        },
+        {
+          "domain_code": "HYDRAULIC",
+          "equipment_group": "HYD-MCH-01",
+          "process_group": "MACHINING",
+          "proxy_load_units": 120.0,
+          "risk_level": "LOW",
+          "risk_score": 120.0,
+          "signals": [
+            "PROXY_LOAD"
+          ]
+        },
+        {
+          "domain_code": "STS",
+          "equipment_group": "STS-POL-01",
+          "process_group": "POLISHING",
+          "proxy_load_units": 80.0,
+          "risk_level": "HIGH",
+          "risk_score": 160.0,
+          "signals": [
+            "PROXY_LOAD",
+            "SNAPSHOT_UNAVAILABLE"
+          ]
+        }
+      ],
+      "is_precise_lead_time": false,
+      "load_summary_rows": [
+        {
+          "domain_code": "HYDRAULIC",
+          "equipment_group": "HYD-CUT-01",
+          "order_quantity_total": 120.0,
+          "plan_source_row_ids": [
+            "plan-row-2"
+          ],
+          "process_group": "CUTTING",
+          "proxy_load_units": 120.0,
+          "recipe_id": "AUTO-HYDRAULIC-HYD-100",
+          "recipe_step_no": 10,
+          "weight_total": 3400.5
+        },
+        {
+          "domain_code": "HYDRAULIC",
+          "equipment_group": "HYD-MCH-01",
+          "order_quantity_total": 120.0,
+          "plan_source_row_ids": [
+            "plan-row-2"
+          ],
+          "process_group": "MACHINING",
+          "proxy_load_units": 120.0,
+          "recipe_id": "AUTO-HYDRAULIC-HYD-100",
+          "recipe_step_no": 20,
+          "weight_total": 3400.5
+        },
+        {
+          "domain_code": "STS",
+          "equipment_group": "STS-POL-01",
+          "order_quantity_total": 80.0,
+          "plan_source_row_ids": [
+            "plan-row-3"
+          ],
+          "process_group": "POLISHING",
+          "proxy_load_units": 80.0,
+          "recipe_id": "AUTO-STS-STS-200",
+          "recipe_step_no": 10,
+          "weight_total": 2100.0
+        }
+      ],
+      "load_totals": [
+        {
+          "domain_code": "HYDRAULIC",
+          "proxy_load_units": 240.0,
+          "scope": "DOMAIN"
+        },
+        {
+          "domain_code": "STS",
+          "proxy_load_units": 80.0,
+          "scope": "DOMAIN"
+        },
+        {
+          "domain_code": "ALL",
+          "proxy_load_units": 320.0,
+          "scope": "WHOLE_FACTORY"
+        }
+      ],
+      "missing_recipe_count": 1,
+      "proxy_label": "SHORTEST_LEAD_TIME_PROXY",
+      "timing_basis": "NO_STANDARD_TIMES",
+      "unplannable_line_count": 1
+    },
+    "SCN-HYD-CUT-DOWN": {
+      "ambiguous_recipe_count": 0,
+      "bottleneck_risks": [
+        {
+          "domain_code": "HYDRAULIC",
+          "equipment_group": "HYD-CUT-01",
+          "process_group": "CUTTING",
+          "proxy_load_units": 120.0,
+          "risk_level": "HIGH",
+          "risk_score": 240.0,
+          "signals": [
+            "PROXY_LOAD",
+            "OVERRIDE_UNAVAILABLE"
+          ]
+        },
+        {
+          "domain_code": "HYDRAULIC",
+          "equipment_group": "HYD-MCH-01",
+          "process_group": "MACHINING",
+          "proxy_load_units": 120.0,
+          "risk_level": "LOW",
+          "risk_score": 120.0,
+          "signals": [
+            "PROXY_LOAD"
+          ]
+        },
+        {
+          "domain_code": "STS",
+          "equipment_group": "STS-POL-01",
+          "process_group": "POLISHING",
+          "proxy_load_units": 80.0,
+          "risk_level": "HIGH",
+          "risk_score": 160.0,
+          "signals": [
+            "PROXY_LOAD",
+            "SNAPSHOT_UNAVAILABLE"
+          ]
+        }
+      ],
+      "is_precise_lead_time": false,
+      "load_summary_rows": [
+        {
+          "domain_code": "HYDRAULIC",
+          "equipment_group": "HYD-CUT-01",
+          "order_quantity_total": 120.0,
+          "plan_source_row_ids": [
+            "plan-row-2"
+          ],
+          "process_group": "CUTTING",
+          "proxy_load_units": 120.0,
+          "recipe_id": "AUTO-HYDRAULIC-HYD-100",
+          "recipe_step_no": 10,
+          "weight_total": 3400.5
+        },
+        {
+          "domain_code": "HYDRAULIC",
+          "equipment_group": "HYD-MCH-01",
+          "order_quantity_total": 120.0,
+          "plan_source_row_ids": [
+            "plan-row-2"
+          ],
+          "process_group": "MACHINING",
+          "proxy_load_units": 120.0,
+          "recipe_id": "AUTO-HYDRAULIC-HYD-100",
+          "recipe_step_no": 20,
+          "weight_total": 3400.5
+        },
+        {
+          "domain_code": "STS",
+          "equipment_group": "STS-POL-01",
+          "order_quantity_total": 80.0,
+          "plan_source_row_ids": [
+            "plan-row-3"
+          ],
+          "process_group": "POLISHING",
+          "proxy_load_units": 80.0,
+          "recipe_id": "AUTO-STS-STS-200",
+          "recipe_step_no": 10,
+          "weight_total": 2100.0
+        }
+      ],
+      "load_totals": [
+        {
+          "domain_code": "HYDRAULIC",
+          "proxy_load_units": 240.0,
+          "scope": "DOMAIN"
+        },
+        {
+          "domain_code": "STS",
+          "proxy_load_units": 80.0,
+          "scope": "DOMAIN"
+        },
+        {
+          "domain_code": "ALL",
+          "proxy_load_units": 320.0,
+          "scope": "WHOLE_FACTORY"
+        }
+      ],
+      "missing_recipe_count": 1,
+      "proxy_label": "SHORTEST_LEAD_TIME_PROXY",
+      "timing_basis": "NO_STANDARD_TIMES",
+      "unplannable_line_count": 1
+    }
+  }
+}

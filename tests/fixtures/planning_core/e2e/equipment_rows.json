@@ -1,0 +1,47 @@
+[
+  {
+    "source_row_id": "eq-row-2",
+    "domain": "HYDRAULIC",
+    "process_group": "CUTTING",
+    "equipment_id": "HYD-CUT-01",
+    "equipment_name": "HYD-CUT-01",
+    "equipment_status": "AVAILABLE",
+    "unavailable_reason": "",
+    "current_work_order_no": "WO-HYD-001",
+    "current_process_sequence": "10",
+    "current_process_name": "Cut",
+    "current_item_code": "HYD-100",
+    "current_item_name": "Hydraulic cylinder A",
+    "elapsed_or_remaining_time": "02:10 elapsed"
+  },
+  {
+    "source_row_id": "eq-row-3",
+    "domain": "HYDRAULIC",
+    "process_group": "MACHINING",
+    "equipment_id": "HYD-MCH-01",
+    "equipment_name": "HYD-MCH-01",
+    "equipment_status": "AVAILABLE",
+    "unavailable_reason": "",
+    "current_work_order_no": "",
+    "current_process_sequence": "",
+    "current_process_name": "",
+    "current_item_code": "",
+    "current_item_name": "",
+    "elapsed_or_remaining_time": ""
+  },
+  {
+    "source_row_id": "eq-row-4",
+    "domain": "STS",
+    "process_group": "POLISHING",
+    "equipment_id": "STS-POL-01",
+    "equipment_name": "STS-POL-01",
+    "equipment_status": "DOWN",
+    "unavailable_reason": "scheduled maintenance",
+    "current_work_order_no": "",
+    "current_process_sequence": "",
+    "current_process_name": "",
+    "current_item_code": "",
+    "current_item_name": "",
+    "elapsed_or_remaining_time": ""
+  }
+]
