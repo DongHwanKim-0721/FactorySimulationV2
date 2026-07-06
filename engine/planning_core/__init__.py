@@ -22,6 +22,8 @@ from .load_risk import (
     generate_load_and_risk_report,
 )
 from .planning_workbook_io import (
+    PLANNING_WORKBOOK_HEADERS,
+    PLANNING_WORKBOOK_SAMPLE_ROWS,
     PLANNING_WORKBOOK_SHEETS,
     REPORT_WORKBOOK_SHEETS,
     PlanningWorkbookError,
@@ -32,6 +34,7 @@ from .planning_workbook_io import (
     load_planning_workbook_rows,
     render_planning_workbook_report_snapshot,
     write_planning_run_report_xlsx,
+    write_planning_workbook_template_xlsx,
     write_planning_workbook_report_xlsx,
 )
 from .production_plan_import import (
@@ -82,6 +85,8 @@ __all__ = [
     "import_scenario_workbook_rows",
     "import_tbd_recipe_rows",
     "normalize_domain_code",
+    "PLANNING_WORKBOOK_HEADERS",
+    "PLANNING_WORKBOOK_SAMPLE_ROWS",
     "PLANNING_WORKBOOK_SHEETS",
     "PlanningDomain",
     "PlanningFixtureSet",
@@ -121,5 +126,6 @@ __all__ = [
     "ScenarioComparisonResult",
     "ScenarioComparisonRow",
     "write_planning_run_report_xlsx",
+    "write_planning_workbook_template_xlsx",
     "write_planning_workbook_report_xlsx",
 ]

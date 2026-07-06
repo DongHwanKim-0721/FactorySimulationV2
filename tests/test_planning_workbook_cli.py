@@ -1,4 +1,10 @@
-from engine.planning_core import REPORT_WORKBOOK_SHEETS, load_xlsx_sheet_rows
+from engine.planning_core import (
+    PLANNING_WORKBOOK_HEADERS,
+    PLANNING_WORKBOOK_SHEETS,
+    REPORT_WORKBOOK_SHEETS,
+    load_planning_workbook_rows,
+    load_xlsx_sheet_rows,
+)
 from engine.planning_core.cli import main
 from planning_workbook_test_utils import (
     ENGINE_VERSION,
@@ -47,6 +53,47 @@ def test_cli_run_workbook_writes_deterministic_report_xlsx(tmp_path, capsys):
     )
     assert report_rows["Scenario_Comparison"][0]["scenario_id"] == "SCN-BASE"
     assert report_rows["Run_Metadata"][0]["key"] == "ai_role"
+
+
+def test_cli_create_template_writes_runnable_sample_workbook(tmp_path, capsys):
+    workbook_path = tmp_path / "planning-input-template.xlsx"
+    report_path = tmp_path / "planning-run-report.json"
+
+    exit_code = main(["create-template", "--out", str(workbook_path)])
+    created = capsys.readouterr()
+
+    workbook_rows = load_planning_workbook_rows(workbook_path)
+    sheet_rows = load_xlsx_sheet_rows(workbook_path)
+    run_exit_code = main(_run_workbook_args(workbook_path, report_path))
+    ran = capsys.readouterr()
+
+    assert exit_code == 0
+    assert created.err == ""
+    assert created.out == ""
+    assert set(sheet_rows) == set(PLANNING_WORKBOOK_SHEETS.values())
+    assert workbook_rows.production_plan_rows[0]["item_code"] == "HYD-100"
+    assert workbook_rows.scenario_recipe_override_rows == ()
+    assert run_exit_code == 0
+    assert ran.err == ""
+    assert ran.out == ""
+    assert '"calculation_authority": "DETERMINISTIC_ENGINE"' in report_path.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_cli_create_blank_template_writes_headers_only(tmp_path, capsys):
+    workbook_path = tmp_path / "blank-planning-input-template.xlsx"
+
+    exit_code = main(["create-template", "--out", str(workbook_path), "--blank"])
+    captured = capsys.readouterr()
+    sheet_rows = load_xlsx_sheet_rows(workbook_path)
+
+    assert exit_code == 0
+    assert captured.err == ""
+    assert captured.out == ""
+    assert set(sheet_rows) == set(PLANNING_WORKBOOK_SHEETS.values())
+    assert all(rows == () for rows in sheet_rows.values())
+    assert set(PLANNING_WORKBOOK_HEADERS) == set(PLANNING_WORKBOOK_SHEETS.values())
 
 
 def _run_workbook_args(workbook_path, report_path):

@@ -112,6 +112,23 @@ Required CLI config:
 
 ## CLI Usage
 
+Create a sample planning input workbook:
+
+```powershell
+python -m engine.planning_core.cli create-template `
+  --out .\planning-input-template.xlsx
+```
+
+The repository also includes a generated sample at `docs/examples/planning-input-template.xlsx`.
+
+Create a blank workbook with only sheet headers:
+
+```powershell
+python -m engine.planning_core.cli create-template `
+  --out .\blank-planning-input-template.xlsx `
+  --blank
+```
+
 Run a workbook and write the deterministic report JSON:
 
 ```powershell

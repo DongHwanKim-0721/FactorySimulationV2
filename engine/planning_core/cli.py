@@ -11,12 +11,15 @@ from .planning_workbook_io import (
     PlanningWorkbookValidationError,
     render_planning_workbook_report_snapshot,
     write_planning_run_report_xlsx,
+    write_planning_workbook_template_xlsx,
 )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.command == "create-template":
+        return _create_template(args)
     if args.command == "run-workbook":
         return _run_workbook(args)
     parser.print_help(sys.stderr)
@@ -29,6 +32,21 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Run deterministic production-planning core workflows.",
     )
     subparsers = parser.add_subparsers(dest="command")
+
+    create_template = subparsers.add_parser(
+        "create-template",
+        help="Write a planning input workbook template.",
+    )
+    create_template.add_argument(
+        "--out",
+        required=True,
+        help="Output planning input workbook .xlsx path.",
+    )
+    create_template.add_argument(
+        "--blank",
+        action="store_true",
+        help="Write headers only, without sample planning rows.",
+    )
 
     run_workbook = subparsers.add_parser(
         "run-workbook",
@@ -50,6 +68,18 @@ def _build_parser() -> argparse.ArgumentParser:
     run_workbook.add_argument("--engine-version", required=True)
 
     return parser
+
+
+def _create_template(args: argparse.Namespace) -> int:
+    try:
+        write_planning_workbook_template_xlsx(
+            args.out,
+            include_examples=not args.blank,
+        )
+    except (OSError, PlanningWorkbookError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    return 0
 
 
 def _run_workbook(args: argparse.Namespace) -> int:

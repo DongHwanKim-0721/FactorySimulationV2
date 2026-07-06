@@ -19,9 +19,9 @@ The existing route/canvas Tkinter simulator still works, but it is now a frozen 
 - #20: same-domain recipe matching plus missing/T.B.D reporting.
 - #21: load summary and bottleneck-risk proxy reporting.
 - #22: user-authored scenario normalization and deterministic comparison.
-- Post-MVP: deterministic planning-run reports, real `.xlsx` workbook row IO, CLI workbook-to-JSON execution, and CLI workbook-to-report-workbook execution.
+- Post-MVP: deterministic planning-run reports, real `.xlsx` workbook row IO, CLI template creation, CLI workbook-to-JSON execution, and CLI workbook-to-report-workbook execution.
 
-The current next step is to choose whether to add a sample/template workbook artifact or move toward a planning-core UI.
+The current next step is to decide whether the workbook CLI workflow is ready for planning-core UI work.
 
 ## Current Source Of Truth
 
@@ -63,7 +63,7 @@ This prototype contract should not be expanded into the new production-planning 
 
 ## Code Map For Reference
 
-- `engine/planning_core/`: production-planning contracts, importers, workbook IO, CLI execution, recipe matching, load/risk reports, scenario comparison, deterministic JSON rendering, and report workbook export.
+- `engine/planning_core/`: production-planning contracts, importers, workbook IO, workbook template generation, CLI execution, recipe matching, load/risk reports, scenario comparison, deterministic JSON rendering, and report workbook export.
 - `app.py`: Tkinter UI, route editor, canvas rendering, result panels, weekly/monthly panel wiring.
 - `engine/models.py`: scenario entities, route fields, equipment numbering, operator assignments.
 - `engine/simulation.py`: legacy graph simulation and route-based scheduler.
@@ -82,7 +82,7 @@ pytest -q
 Last known local verification on 2026-07-06:
 
 ```text
-138 passed
+140 passed
 ```
 
 Build command used for the desktop executable:

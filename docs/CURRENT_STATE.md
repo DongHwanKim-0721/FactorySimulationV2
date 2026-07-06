@@ -33,10 +33,11 @@ The planning core currently includes:
 - user-authored scenario workbook normalization, built-in templates, AI-draft gating, and deterministic scenario comparison
 - deterministic end-to-end planning-run fixture reporting that chains raw fixture rows through import, matching, load/risk reporting, and scenario comparison
 - real `.xlsx` workbook row extraction for the same planning-run report shape
+- CLI execution for creating a sample or blank planning input workbook template
 - CLI execution for `workbook.xlsx -> planning-run-report.json`
 - CLI execution for `workbook.xlsx -> planning-run-report.xlsx`
 
-The next product question is whether to add a sample/template workbook artifact or move toward a planning-core UI.
+The next product question is whether the workbook CLI workflow is ready for a planning-core UI.
 
 ## Current Implemented Prototype
 
@@ -89,7 +90,7 @@ Last local automated verification for the combined frozen prototype and planning
 
 ```text
 pytest -q
-138 passed
+140 passed
 ```
 
 The desktop executable was rebuilt with:
